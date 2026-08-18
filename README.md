@@ -568,3 +568,5 @@ ns-proveedores-app/
 │   └── api/crear-usuario.js   # Crea usuarios en Supabase Auth (usa service_role)
 └── styles/globals.css
 ```
+#   N S _ P R O V E E D O R E S  
+ 
