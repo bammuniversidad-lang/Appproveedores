@@ -218,13 +218,142 @@ create table if not exists import_logs (
 create index if not exists idx_import_logs_usuario_id on import_logs(usuario_id);
 
 -- =====================================================================
+-- Días festivos de Colombia (para excluirlos de dias_habiles_entre)
+--
+-- Colombia tiene 18 festivos al año: 6 de fecha fija (Año Nuevo, Trabajo,
+-- Independencia, Batalla de Boyacá, Inmaculada Concepción, Navidad), 2
+-- ligados a la Semana Santa que NUNCA se trasladan (Jueves y Viernes
+-- Santo), y 10 que la Ley Emiliani (Ley 51 de 1983) traslada al lunes
+-- siguiente si no caen ya en lunes (Reyes Magos, San José, Ascensión del
+-- Señor, Corpus Christi, Sagrado Corazón de Jesús, San Pedro y San
+-- Pablo, Asunción de la Virgen, Día de la Raza, Todos los Santos,
+-- Independencia de Cartagena). Las fechas de Semana Santa y de los
+-- festivos trasladables se calcularon con el algoritmo de Computus
+-- (Gauss/Meeus) + la regla de traslado al lunes, para los años 2024-2028
+-- (cubre los datos históricos y las importaciones esperadas a corto
+-- plazo). Si en el futuro se necesitan años posteriores a 2028, hay que
+-- agregar esas fechas aquí a mano (o recalcularlas con el mismo
+-- algoritmo) -- el gobierno colombiano publica el calendario oficial con
+-- 1-2 años de anticipación.
+-- =====================================================================
+create table if not exists dias_festivos_colombia (
+  fecha date primary key,
+  nombre text not null
+);
+
+alter table dias_festivos_colombia enable row level security;
+
+drop policy if exists "dias_festivos_colombia_select" on dias_festivos_colombia;
+create policy "dias_festivos_colombia_select" on dias_festivos_colombia
+  for select using (auth.role() in ('authenticated', 'anon'));
+
+-- Semilla 2024-2028 (89 filas -- 2025 tiene solo 17 fechas distintas
+-- porque Sagrado Corazón y San Pedro/San Pablo cayeron el mismo lunes
+-- ese año, 2025-06-30).
+insert into dias_festivos_colombia (fecha, nombre) values
+  ('2024-01-01', 'Año Nuevo'),
+  ('2024-01-08', 'Reyes Magos'),
+  ('2024-03-25', 'San José'),
+  ('2024-03-28', 'Jueves Santo'),
+  ('2024-03-29', 'Viernes Santo'),
+  ('2024-05-01', 'Día del Trabajo'),
+  ('2024-05-13', 'Ascensión del Señor'),
+  ('2024-06-03', 'Corpus Christi'),
+  ('2024-06-10', 'Sagrado Corazón de Jesús'),
+  ('2024-07-01', 'San Pedro y San Pablo'),
+  ('2024-07-20', 'Día de la Independencia'),
+  ('2024-08-07', 'Batalla de Boyacá'),
+  ('2024-08-19', 'Asunción de la Virgen'),
+  ('2024-10-14', 'Día de la Raza'),
+  ('2024-11-04', 'Todos los Santos'),
+  ('2024-11-11', 'Independencia de Cartagena'),
+  ('2024-12-08', 'Inmaculada Concepción'),
+  ('2024-12-25', 'Navidad'),
+  ('2025-01-01', 'Año Nuevo'),
+  ('2025-01-06', 'Reyes Magos'),
+  ('2025-03-24', 'San José'),
+  ('2025-04-17', 'Jueves Santo'),
+  ('2025-04-18', 'Viernes Santo'),
+  ('2025-05-01', 'Día del Trabajo'),
+  ('2025-06-02', 'Ascensión del Señor'),
+  ('2025-06-23', 'Corpus Christi'),
+  ('2025-06-30', 'San Pedro y San Pablo'),
+  ('2025-07-20', 'Día de la Independencia'),
+  ('2025-08-07', 'Batalla de Boyacá'),
+  ('2025-08-18', 'Asunción de la Virgen'),
+  ('2025-10-13', 'Día de la Raza'),
+  ('2025-11-03', 'Todos los Santos'),
+  ('2025-11-17', 'Independencia de Cartagena'),
+  ('2025-12-08', 'Inmaculada Concepción'),
+  ('2025-12-25', 'Navidad'),
+  ('2026-01-01', 'Año Nuevo'),
+  ('2026-01-12', 'Reyes Magos'),
+  ('2026-03-23', 'San José'),
+  ('2026-04-02', 'Jueves Santo'),
+  ('2026-04-03', 'Viernes Santo'),
+  ('2026-05-01', 'Día del Trabajo'),
+  ('2026-05-18', 'Ascensión del Señor'),
+  ('2026-06-08', 'Corpus Christi'),
+  ('2026-06-15', 'Sagrado Corazón de Jesús'),
+  ('2026-06-29', 'San Pedro y San Pablo'),
+  ('2026-07-20', 'Día de la Independencia'),
+  ('2026-08-07', 'Batalla de Boyacá'),
+  ('2026-08-17', 'Asunción de la Virgen'),
+  ('2026-10-12', 'Día de la Raza'),
+  ('2026-11-02', 'Todos los Santos'),
+  ('2026-11-16', 'Independencia de Cartagena'),
+  ('2026-12-08', 'Inmaculada Concepción'),
+  ('2026-12-25', 'Navidad'),
+  ('2027-01-01', 'Año Nuevo'),
+  ('2027-01-11', 'Reyes Magos'),
+  ('2027-03-22', 'San José'),
+  ('2027-03-25', 'Jueves Santo'),
+  ('2027-03-26', 'Viernes Santo'),
+  ('2027-05-01', 'Día del Trabajo'),
+  ('2027-05-10', 'Ascensión del Señor'),
+  ('2027-05-31', 'Corpus Christi'),
+  ('2027-06-07', 'Sagrado Corazón de Jesús'),
+  ('2027-07-05', 'San Pedro y San Pablo'),
+  ('2027-07-20', 'Día de la Independencia'),
+  ('2027-08-07', 'Batalla de Boyacá'),
+  ('2027-08-16', 'Asunción de la Virgen'),
+  ('2027-10-18', 'Día de la Raza'),
+  ('2027-11-01', 'Todos los Santos'),
+  ('2027-11-15', 'Independencia de Cartagena'),
+  ('2027-12-08', 'Inmaculada Concepción'),
+  ('2027-12-25', 'Navidad'),
+  ('2028-01-01', 'Año Nuevo'),
+  ('2028-01-10', 'Reyes Magos'),
+  ('2028-03-20', 'San José'),
+  ('2028-04-13', 'Jueves Santo'),
+  ('2028-04-14', 'Viernes Santo'),
+  ('2028-05-01', 'Día del Trabajo'),
+  ('2028-05-29', 'Ascensión del Señor'),
+  ('2028-06-19', 'Corpus Christi'),
+  ('2028-06-26', 'Sagrado Corazón de Jesús'),
+  ('2028-07-03', 'San Pedro y San Pablo'),
+  ('2028-07-20', 'Día de la Independencia'),
+  ('2028-08-07', 'Batalla de Boyacá'),
+  ('2028-08-21', 'Asunción de la Virgen'),
+  ('2028-10-16', 'Día de la Raza'),
+  ('2028-11-06', 'Todos los Santos'),
+  ('2028-11-13', 'Independencia de Cartagena'),
+  ('2028-12-08', 'Inmaculada Concepción'),
+  ('2028-12-25', 'Navidad')
+on conflict (fecha) do nothing;
+
+grant select on dias_festivos_colombia to anon, authenticated;
+
+-- =====================================================================
 -- FUNCIÓN AUXILIAR: días hábiles entre dos fechas (equivalente a
--- NETWORKDAYS.INTL de Excel, semana Lun-Vie).
+-- NETWORKDAYS.INTL de Excel, semana Lun-Vie, excluyendo además los
+-- festivos colombianos de dias_festivos_colombia). "stable" (no
+-- "immutable") porque depende de una tabla que puede cambiar.
 -- =====================================================================
 create or replace function dias_habiles_entre(fecha_inicio date, fecha_fin date)
 returns int
 language sql
-immutable
+stable
 set search_path = public
 as $$
   select case
@@ -232,10 +361,12 @@ as $$
     when fecha_fin >= fecha_inicio then (
       select count(*)::int from generate_series(fecha_inicio, fecha_fin, interval '1 day') d
       where extract(isodow from d) < 6
+        and d::date not in (select fecha from dias_festivos_colombia)
     )
     else -(
       select count(*)::int from generate_series(fecha_fin, fecha_inicio, interval '1 day') d
       where extract(isodow from d) < 6
+        and d::date not in (select fecha from dias_festivos_colombia)
     )
   end;
 $$;
@@ -880,6 +1011,20 @@ $$;
 -- detectar el hueco. Se usa en Configuración > Tiempo de entrega para
 -- priorizar qué proveedores registrar primero (por líneas incumplidas y
 -- valor en riesgo).
+--
+-- dias_entrega_sugerido: si ya existen líneas de esa combinación con
+-- fecha_orden y fecha_entrega_real reales, se sugiere el promedio de
+-- días hábiles (dias_habiles_entre ya excluye fines de semana y
+-- festivos colombianos) entre esas fechas -- pero solo si el promedio
+-- redondeado no es 0 ni 1, porque esos valores casi siempre indican
+-- datos atípicos/incompletos y no un tiempo de entrega real. Si no
+-- aplica, se devuelve null y el usuario sigue pudiendo digitar el valor
+-- manualmente (el promedio es solo una sugerencia editable en el
+-- formulario antes de guardar). Para estas combinaciones (sin
+-- tiempo_entrega), "diferencia" en v_ns_proveedores ya equivale
+-- directamente a dias_habiles_entre(fecha_orden, fecha_entrega_real)
+-- porque coalesce(te.dias_entrega, 0) = 0, así que no hace falta volver
+-- a llamar la función.
 -- =====================================================================
 create or replace function get_co_proveedor_sin_tiempo_entrega()
 returns table (
@@ -890,7 +1035,8 @@ returns table (
   valor_bruto numeric,
   valor_pendiente numeric,
   primera_fecha_orden date,
-  ultima_fecha_orden date
+  ultima_fecha_orden date,
+  dias_entrega_sugerido numeric
 )
 language sql
 stable
@@ -904,7 +1050,12 @@ as $$
     coalesce(sum(v.valor_bruto), 0) as valor_bruto,
     coalesce(sum(v.v_pendiente), 0) as valor_pendiente,
     min(v.fecha_orden) as primera_fecha_orden,
-    max(v.fecha_orden) as ultima_fecha_orden
+    max(v.fecha_orden) as ultima_fecha_orden,
+    case
+      when avg(v.diferencia) filter (where v.diferencia is not null) is null then null
+      when round(avg(v.diferencia) filter (where v.diferencia is not null)) in (0, 1) then null
+      else round(avg(v.diferencia) filter (where v.diferencia is not null))
+    end as dias_entrega_sugerido
   from v_ns_proveedores v
   where v.dias_entrega_esperados is null
   group by v.co, v.proveedor

@@ -88,8 +88,18 @@ export default function TiempoEntrega({ tema, alternarTema }) {
   // Precarga el formulario "+ Agregar proveedor" con el C.O. y Proveedor de
   // una combinación detectada como faltante, para completar rápido los
   // demás datos (días de entrega, etc.) sin tener que digitarlos de cero.
+  // Si el backend ya calculó un "días de entrega sugerido" (promedio de
+  // días hábiles reales entre fecha de orden y fecha de entrega real de
+  // las líneas existentes de esa combinación, excluyendo 0 y 1 por poco
+  // confiables), se precarga también como punto de partida -- la persona
+  // puede modificarlo libremente antes de guardar si no le parece real.
   function agregarDesdeFaltante(f) {
-    setNuevo({ ...CAMPO_VACIO, co: f.co, proveedor: f.proveedor });
+    setNuevo({
+      ...CAMPO_VACIO,
+      co: f.co,
+      proveedor: f.proveedor,
+      dias_entrega: f.dias_entrega_sugerido != null ? String(f.dias_entrega_sugerido) : '',
+    });
     setMostrarNuevo(true);
     if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -207,7 +217,8 @@ export default function TiempoEntrega({ tema, alternarTema }) {
         Maestro editable (igual que en tu Excel del indicador NS Proveedores1): agrega proveedores
         nuevos o modifica los días de entrega esperados y demás datos de un proveedor ya existente.
         Se usa para calcular la <b>diferencia</b> (días hábiles reales vs. esperados) en Nivel de
-        servicio.
+        servicio. Los "días hábiles" excluyen sábados, domingos y los festivos oficiales de
+        Colombia, para que la métrica de incumplimiento refleje el tiempo de entrega real.
       </p>
 
       {error && <p className="error-text">{error}</p>}
@@ -228,6 +239,11 @@ export default function TiempoEntrega({ tema, alternarTema }) {
           <b> incumplidas</b> aunque en realidad nunca se evaluó bien su tiempo de entrega.
           Regístralas (botón "Agregar") con sus días de entrega reales para que la métrica de
           incumplimiento sea confiable. Ordenado por líneas incumplidas y valor en riesgo.
+          Cuando ya hay suficientes líneas con fecha de orden y fecha de entrega real, se
+          calcula un <b>"Días sugerido"</b> (promedio de días hábiles reales, sin contar
+          fines de semana ni festivos colombianos) que se precarga en el formulario al
+          presionar "Agregar" — revísalo y ajústalo si no te parece representativo antes
+          de guardar.
         </p>
         {cargandoFaltantes ? (
           <p style={{ fontSize: 12, opacity: 0.7 }}>Cargando...</p>
@@ -246,6 +262,7 @@ export default function TiempoEntrega({ tema, alternarTema }) {
                   <th>Valor pendiente</th>
                   <th>Primera orden</th>
                   <th>Última orden</th>
+                  <th>Días sugerido</th>
                   <th></th>
                 </tr>
               </thead>
@@ -260,6 +277,7 @@ export default function TiempoEntrega({ tema, alternarTema }) {
                     <td>$ {Number(f.valor_pendiente || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })}</td>
                     <td>{f.primera_fecha_orden}</td>
                     <td>{f.ultima_fecha_orden}</td>
+                    <td>{f.dias_entrega_sugerido != null ? f.dias_entrega_sugerido : '-'}</td>
                     <td><button onClick={() => agregarDesdeFaltante(f)}>Agregar</button></td>
                   </tr>
                 ))}

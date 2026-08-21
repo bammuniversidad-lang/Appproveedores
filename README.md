@@ -177,7 +177,34 @@ separados en el cuadro de clasificación ABCD.
 - Ambas tarjetas nuevas también se agregaron a la hoja "Resumen" del
   Excel exportable y a la diapositiva de indicadores del PowerPoint.
 
-## Nuevo (última ronda): Novedades rediseñada — por documento, ordenable, filtro "sin motivo"
+## Nuevo (última ronda): días hábiles sin festivos colombianos + días de entrega sugeridos
+
+Pediste dos ajustes sobre el cálculo del tiempo de entrega:
+
+1. *"No se debe tener presente los días sábados y domingos, además de los días festivos
+   en Colombia, toda vez que no es un día hábil, esto ayudará a saber realmente si es
+   incumplimiento o no."* El sistema ya excluía sábados y domingos al calcular la
+   diferencia entre la fecha de la orden y la fecha real de entrega, pero no excluía los
+   festivos colombianos. Ahora sí: se agregó una tabla `dias_festivos_colombia` con los
+   18 festivos oficiales de cada año (calculados con la Ley Emiliani, que traslada
+   varios festivos al lunes siguiente) para 2024 a 2028, y la función que calcula "días
+   hábiles" ahora también excluye esas fechas. Esto puede mover algunas líneas de
+   "incumplido" a "cumplido" si el festivo hacía parecer más lenta la entrega de lo que
+   realmente fue.
+2. *"En el tiempo de entrega, los proveedores que se identifican como faltante, si hay
+   fecha de orden y fecha real de entrada con los datos existentes, colocar como
+   sugerido el promedio siempre y cuando no sea 0 o 1, pero que la persona al revisar en
+   caso de que no sea real lo pueda modificar."* En el panel "Proveedores/C.O. sin
+   tiempo de entrega definido" (Configuración > Tiempo de entrega), ahora hay una
+   columna **"Días sugerido"**: el promedio de días hábiles reales entre la fecha de la
+   orden y la fecha de entrega real de las líneas que ya existen para ese proveedor
+   (excluyendo fines de semana y festivos, como en el punto 1). Si el promedio es 0 o 1
+   día, no se sugiere nada (esos valores casi siempre son datos atípicos, no un tiempo
+   de entrega real). Al presionar "Agregar", el formulario se precarga con ese valor
+   sugerido en "Días de entrega", pero lo puedes revisar y cambiar libremente antes de
+   guardar si no te parece representativo.
+
+## Nuevo (ronda anterior): Novedades rediseñada — por documento, ordenable, filtro "sin motivo"
 
 Pediste: *"en la hoja de novedades por incumplimiento aparece el detalle por c.o,
 proveedor, líneas, sin motivo y valor pendiente, pero debería quedar c.o, proveedor, nro
@@ -199,7 +226,7 @@ orden" y "Fecha entrega real" tienen sentido como columnas de la tabla principal
 - El detalle expandible ("Ver líneas") ahora también muestra el valor bruto de cada
   línea, junto al valor pendiente.
 
-## Nuevo (ronda anterior): corrección masiva de fecha de orden y auditoría de proveedores sin tiempo de entrega
+## Nuevo (ronda -2): corrección masiva de fecha de orden y auditoría de proveedores sin tiempo de entrega
 
 Pediste dos cosas sobre **Nivel de servicio** y **Tiempo de entrega**:
 
@@ -225,7 +252,7 @@ Pediste dos cosas sobre **Nivel de servicio** y **Tiempo de entrega**:
    (ejemplo: C.O. 003 / PRODUCTOS RAMO SAS, 73 de 78 líneas). Registrarlas con sus días de
    entrega reales debería corregir bastante el indicador de incumplimiento.
 
-## Nuevo (ronda -2): Dashboard reorganizado — cuadros simétricos
+## Nuevo (ronda -3): Dashboard reorganizado — cuadros simétricos
 
 Reportaste que el Dashboard "no se ve simétrico". La causa: la rejilla de cuadros usaba
 un ancho automático (`auto-fit`) que acomoda tantos cuadros como quepan por fila según
@@ -243,7 +270,7 @@ por clasificación", "Detalle por C.O.") ocupan la fila completa, así tienen m�
 antes de necesitar scroll horizontal. El gráfico de barras sigue a ancho completo al
 final, como antes.
 
-## Nuevo (ronda -3): dos motivos independientes (faltante vs. incumplimiento en tiempo) y sus tablas en el Dashboard
+## Nuevo (ronda -4): dos motivos independientes (faltante vs. incumplimiento en tiempo) y sus tablas en el Dashboard
 
 Revisando el PowerPoint exportado, detectamos que "Motivos de incumplimiento" mezclaba
 dos novedades distintas de tu proceso:
@@ -281,7 +308,7 @@ asignado (por coincidencia, porque también estaban incumplidas en tiempo).
   "Motivos por incumplimiento") y al PowerPoint (con la corrección de altura de fila de
   la sección anterior, así que no se ven distorsionadas).
 
-## Nuevo (ronda -4): proveedor único en Pareto, dos cuadros por clasificación, filtro C.O. y PowerPoint sin distorsión
+## Nuevo (ronda -5): proveedor único en Pareto, dos cuadros por clasificación, filtro C.O. y PowerPoint sin distorsión
 
 - **Bug arreglado — el mismo proveedor aparecía varias veces en
   "Clasificación de proveedores (Pareto ABCD)"**: el cuadro agrupaba por
