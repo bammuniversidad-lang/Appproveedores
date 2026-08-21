@@ -60,6 +60,8 @@ export default function NivelServicio({ tema, alternarTema }) {
   const [seleccionados, setSeleccionados] = useState(new Set());
   const [motivoMasivo, setMotivoMasivo] = useState('');
   const [motivoFaltanteMasivo, setMotivoFaltanteMasivo] = useState('');
+  const [fechaMasiva, setFechaMasiva] = useState('');
+  const [corrigiendoMasivo, setCorrigiendoMasivo] = useState(false);
   const [cargando, setCargando] = useState(false);
   const [corrigiendo, setCorrigiendo] = useState(false);
   const [mensaje, setMensaje] = useState('');
@@ -267,6 +269,43 @@ export default function NivelServicio({ tema, alternarTema }) {
     }
   }
 
+  // Igual que corregirManualmente, pero aplicada a TODAS las filas
+  // seleccionadas de una sola vez (ej.: filtrar por Nro orden, seleccionar
+  // todo con la casilla del encabezado, y aplicar una sola fecha). Cada fila
+  // conserva su propia "fecha_orden_original" (no se sobrescribe si ya
+  // existe), así que se actualiza una por una en vez de un solo UPDATE
+  // masivo con un valor fijo.
+  async function corregirFechaMasivo(filasObjetivo, nuevaFecha) {
+    if (!nuevaFecha || filasObjetivo.length === 0) return;
+    setCorrigiendoMasivo(true);
+    setMensaje('');
+    const resultados = await Promise.all(
+      filasObjetivo.map((fila) =>
+        supabase
+          .from('pedidos_detalle')
+          .update({
+            fecha_orden_original: fila.fecha_orden_original || fila.fecha_orden,
+            fecha_orden: nuevaFecha,
+            fecha_orden_corregida: true,
+            fecha_orden_corregida_en: new Date().toISOString(),
+            necesita_revision: false,
+          })
+          .eq('id', fila.id)
+      )
+    );
+    setCorrigiendoMasivo(false);
+    const errores = resultados.filter((r) => r.error);
+    if (errores.length > 0) {
+      setMensaje(`Se aplicó la fecha a ${filasObjetivo.length - errores.length} de ${filasObjetivo.length} línea(s). Errores: ${errores[0].error.message}`);
+    } else {
+      setMensaje(`Fecha de orden ${nuevaFecha} aplicada a ${filasObjetivo.length} línea(s).`);
+      setFechaMasiva('');
+      setSeleccionados(new Set());
+    }
+    cargarFilas();
+    cargarTarjetas();
+  }
+
   function exportar() {
     const datos = filasOrdenadas.map((f) => ({
       'C.O.': f.co,
@@ -411,6 +450,14 @@ export default function NivelServicio({ tema, alternarTema }) {
         cubrir el 100% del indicador de faltantes más rápido.
       </p>
 
+      <p style={{ fontSize: 11, opacity: 0.75, maxWidth: 760 }}>
+        Para corregir la <b>fecha de orden</b> de todo un Nro orden a la vez (en vez de
+        línea a línea): escribe el Nro orden en el filtro de esa columna, marca la casilla
+        del encabezado para seleccionar todas las líneas filtradas, elige la fecha en el
+        control de abajo (junto a "Aplicar a selección") y presiona "Aplicar fecha de orden
+        a selección".
+      </p>
+
       <p style={{ fontSize: 12, opacity: 0.85, marginBottom: 10 }}>
         {filas.length} línea(s) cargada(s) para el rango de fechas {co ? `y C.O. ${co}` : ''}
         {filasOrdenadas.length !== filas.length && ` · ${filasOrdenadas.length} después de los filtros de columna`}.
@@ -436,6 +483,19 @@ export default function NivelServicio({ tema, alternarTema }) {
           </select>
           <button disabled={!motivoFaltanteMasivo} onClick={() => asignarMotivo([...seleccionados], motivoFaltanteMasivo, 'faltante')}>
             Aplicar a selección
+          </button>
+          <span style={{ opacity: 0.4 }}>|</span>
+          <input
+            type="date"
+            value={fechaMasiva}
+            onChange={(e) => setFechaMasiva(e.target.value)}
+            title="Fecha de orden a aplicar a toda la selección"
+          />
+          <button
+            disabled={!fechaMasiva || corrigiendoMasivo}
+            onClick={() => corregirFechaMasivo(filasOrdenadas.filter((f) => seleccionados.has(f.id)), fechaMasiva)}
+          >
+            {corrigiendoMasivo ? 'Aplicando...' : 'Aplicar fecha de orden a selección'}
           </button>
         </div>
       )}

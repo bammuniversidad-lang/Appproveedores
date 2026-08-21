@@ -177,7 +177,33 @@ separados en el cuadro de clasificación ABCD.
 - Ambas tarjetas nuevas también se agregaron a la hoja "Resumen" del
   Excel exportable y a la diapositiva de indicadores del PowerPoint.
 
-## Nuevo (última ronda): Dashboard reorganizado — cuadros simétricos
+## Nuevo (última ronda): corrección masiva de fecha de orden y auditoría de proveedores sin tiempo de entrega
+
+Pediste dos cosas sobre **Nivel de servicio** y **Tiempo de entrega**:
+
+1. *"para corregir fechas yo lo hago por nro orden pero aquí toca línea a línea"* — ya se
+   podía filtrar por Nro orden y seleccionar todas las líneas filtradas con la casilla del
+   encabezado, pero la corrección de "Fecha orden" solo existía línea por línea. Ahora, en
+   **Nivel de servicio**, cuando tienes filas seleccionadas aparece (junto a los selectores
+   de motivo) un campo de fecha + botón **"Aplicar fecha de orden a selección"**: filtra por
+   Nro orden, selecciona todo con la casilla del encabezado, elige la fecha y aplícala a
+   todas las líneas de una sola vez. Cada línea conserva su propia "Fecha orden original" (no
+   se pisa si ya tenía una), igual que la corrección manual de siempre.
+
+2. *"cómo podemos identificar que proveedores y en que C.O. no está definido el tiempo de
+   entrega, para tener una buena métrica del incumplimiento"* — cuando una combinación C.O. +
+   Proveedor no tiene registro en el maestro de **Tiempo de entrega**, el sistema asume 0
+   días de entrega esperados, así que esas líneas casi siempre terminan marcadas como
+   incumplidas aunque nunca se evaluó bien su tiempo de entrega real. Ahora, la pantalla
+   **Configuración > Tiempo de entrega** tiene un panel nuevo arriba, **"Proveedores/C.O. sin
+   tiempo de entrega definido"**, que lista esas combinaciones ordenadas por líneas
+   incumplidas y valor en riesgo, con un botón "Agregar" que precarga el formulario para
+   registrarlas rápido. Con tus datos reales encontramos **33 combinaciones** sin tiempo de
+   entrega definido — algunas con más del 90% de sus líneas marcadas como incumplidas
+   (ejemplo: C.O. 003 / PRODUCTOS RAMO SAS, 73 de 78 líneas). Registrarlas con sus días de
+   entrega reales debería corregir bastante el indicador de incumplimiento.
+
+## Nuevo (ronda anterior): Dashboard reorganizado — cuadros simétricos
 
 Reportaste que el Dashboard "no se ve simétrico". La causa: la rejilla de cuadros usaba
 un ancho automático (`auto-fit`) que acomoda tantos cuadros como quepan por fila según
@@ -195,7 +221,7 @@ por clasificación", "Detalle por C.O.") ocupan la fila completa, así tienen m�
 antes de necesitar scroll horizontal. El gráfico de barras sigue a ancho completo al
 final, como antes.
 
-## Nuevo (ronda anterior): dos motivos independientes (faltante vs. incumplimiento en tiempo) y sus tablas en el Dashboard
+## Nuevo (ronda -2): dos motivos independientes (faltante vs. incumplimiento en tiempo) y sus tablas en el Dashboard
 
 Revisando el PowerPoint exportado, detectamos que "Motivos de incumplimiento" mezclaba
 dos novedades distintas de tu proceso:
@@ -233,7 +259,7 @@ asignado (por coincidencia, porque también estaban incumplidas en tiempo).
   "Motivos por incumplimiento") y al PowerPoint (con la corrección de altura de fila de
   la sección anterior, así que no se ven distorsionadas).
 
-## Nuevo (ronda -2): proveedor único en Pareto, dos cuadros por clasificación, filtro C.O. y PowerPoint sin distorsión
+## Nuevo (ronda -3): proveedor único en Pareto, dos cuadros por clasificación, filtro C.O. y PowerPoint sin distorsión
 
 - **Bug arreglado — el mismo proveedor aparecía varias veces en
   "Clasificación de proveedores (Pareto ABCD)"**: el cuadro agrupaba por
@@ -568,5 +594,3 @@ ns-proveedores-app/
 │   └── api/crear-usuario.js   # Crea usuarios en Supabase Auth (usa service_role)
 └── styles/globals.css
 ```
-#   N S _ P R O V E E D O R E S  
- 

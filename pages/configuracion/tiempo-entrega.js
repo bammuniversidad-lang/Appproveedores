@@ -51,6 +51,15 @@ export default function TiempoEntrega({ tema, alternarTema }) {
   const [procesandoImportacion, setProcesandoImportacion] = useState(false);
   const [resultadoImportacion, setResultadoImportacion] = useState(null);
 
+  // Combinaciones (C.O. + Proveedor) que tienen líneas en pedidos_detalle
+  // pero no tienen registro en este maestro -- sin ese registro, el sistema
+  // asume 0 días de entrega esperados y esas líneas suelen quedar marcadas
+  // como incumplidas aunque en realidad nunca se evaluó bien su tiempo de
+  // entrega. Se muestran ordenadas por líneas incumplidas y valor, para
+  // priorizar cuáles registrar primero.
+  const [faltantes, setFaltantes] = useState([]);
+  const [cargandoFaltantes, setCargandoFaltantes] = useState(true);
+
   async function cargar() {
     setCargando(true);
     const { data, error } = await supabase
@@ -63,9 +72,27 @@ export default function TiempoEntrega({ tema, alternarTema }) {
     setCargando(false);
   }
 
+  async function cargarFaltantes() {
+    setCargandoFaltantes(true);
+    const { data, error } = await supabase.rpc('get_co_proveedor_sin_tiempo_entrega');
+    if (error) setError(error.message);
+    setFaltantes(data || []);
+    setCargandoFaltantes(false);
+  }
+
   useEffect(() => {
     cargar();
+    cargarFaltantes();
   }, []);
+
+  // Precarga el formulario "+ Agregar proveedor" con el C.O. y Proveedor de
+  // una combinación detectada como faltante, para completar rápido los
+  // demás datos (días de entrega, etc.) sin tener que digitarlos de cero.
+  function agregarDesdeFaltante(f) {
+    setNuevo({ ...CAMPO_VACIO, co: f.co, proveedor: f.proveedor });
+    setMostrarNuevo(true);
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
 
   async function crear(e) {
     e.preventDefault();
@@ -82,6 +109,7 @@ export default function TiempoEntrega({ tema, alternarTema }) {
     setNuevo(CAMPO_VACIO);
     setMostrarNuevo(false);
     cargar();
+    cargarFaltantes();
   }
 
   function iniciarEdicion(r) {
@@ -118,7 +146,7 @@ export default function TiempoEntrega({ tema, alternarTema }) {
     setError('');
     const { error } = await supabase.from('tiempo_entrega').delete().eq('id', id);
     if (error) setError(error.message);
-    else cargar();
+    else { cargar(); cargarFaltantes(); }
   }
 
   // Carga inicial / masiva desde el Excel del indicador NS Proveedores1.
@@ -158,6 +186,7 @@ export default function TiempoEntrega({ tema, alternarTema }) {
       setResultadoImportacion({ totales: filasCrudas.length, procesados, omitidosDetalle });
       setArchivo(null);
       cargar();
+      cargarFaltantes();
     } catch (e) {
       setResultadoImportacion({ totales: 0, procesados: 0, omitidosDetalle: [{ fila: '-', motivo: e.message }] });
     } finally {
@@ -182,6 +211,63 @@ export default function TiempoEntrega({ tema, alternarTema }) {
       </p>
 
       {error && <p className="error-text">{error}</p>}
+
+      <div className="panel-dashboard" style={{ marginBottom: 20 }}>
+        <h3 style={{ marginTop: 0 }}>
+          Proveedores/C.O. sin tiempo de entrega definido
+          {!cargandoFaltantes && faltantes.length > 0 && (
+            <span className="celda-roja-metal" style={{ marginLeft: 8, padding: '1px 8px', borderRadius: 3, fontSize: 13 }}>
+              {faltantes.length}
+            </span>
+          )}
+        </h3>
+        <p style={{ fontSize: 11, opacity: 0.8, maxWidth: 900 }}>
+          Estas combinaciones de C.O. + Proveedor tienen líneas en el sistema pero <b>no
+          tienen un registro aquí abajo</b>: al no saber cuántos días de entrega se esperan,
+          el sistema asume 0 días, así que casi todas esas líneas terminan marcadas como
+          <b> incumplidas</b> aunque en realidad nunca se evaluó bien su tiempo de entrega.
+          Regístralas (botón "Agregar") con sus días de entrega reales para que la métrica de
+          incumplimiento sea confiable. Ordenado por líneas incumplidas y valor en riesgo.
+        </p>
+        {cargandoFaltantes ? (
+          <p style={{ fontSize: 12, opacity: 0.7 }}>Cargando...</p>
+        ) : faltantes.length === 0 ? (
+          <p style={{ fontSize: 12 }} className="ok-text">Todas las combinaciones C.O. + Proveedor con pedidos tienen tiempo de entrega definido.</p>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>C.O.</th>
+                  <th>Proveedor</th>
+                  <th>Líneas</th>
+                  <th>Líneas incumplidas</th>
+                  <th>Valor bruto</th>
+                  <th>Valor pendiente</th>
+                  <th>Primera orden</th>
+                  <th>Última orden</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {faltantes.map((f) => (
+                  <tr key={`${f.co}||${f.proveedor}`} className={f.lineas_incumplidas > 0 ? 'celda-roja-metal' : ''}>
+                    <td>{f.co}</td>
+                    <td>{f.proveedor}</td>
+                    <td>{f.lineas}</td>
+                    <td>{f.lineas_incumplidas}</td>
+                    <td>$ {Number(f.valor_bruto || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })}</td>
+                    <td>$ {Number(f.valor_pendiente || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })}</td>
+                    <td>{f.primera_fecha_orden}</td>
+                    <td>{f.ultima_fecha_orden}</td>
+                    <td><button onClick={() => agregarDesdeFaltante(f)}>Agregar</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       <div className="panel-dashboard" style={{ maxWidth: 760, marginBottom: 20 }}>
         <h3 style={{ marginTop: 0 }}>Carga inicial / masiva desde Excel</h3>

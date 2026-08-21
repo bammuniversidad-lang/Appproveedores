@@ -867,6 +867,53 @@ as $$
 $$;
 
 -- =====================================================================
+-- FUNCIÓN: combinaciones (C.O., Proveedor) sin tiempo de entrega definido
+--
+-- Identifica combinaciones (C.O., Proveedor) que aparecen en
+-- pedidos_detalle pero NO tienen un registro en tiempo_entrega. Sin ese
+-- registro, la vista v_ns_proveedores usa coalesce(te.dias_entrega, 0)
+-- para calcular la diferencia de días, lo que sesga esas líneas hacia
+-- "incumplido" (0 días esperados de entrega). dias_entrega_esperados en
+-- v_ns_proveedores viene directo de te.dias_entrega (sin coalesce) en la
+-- CTE con_diferencia, así que es NULL exactamente cuando no hay fila de
+-- tiempo_entrega para ese (co, proveedor) -- es la señal confiable para
+-- detectar el hueco. Se usa en Configuración > Tiempo de entrega para
+-- priorizar qué proveedores registrar primero (por líneas incumplidas y
+-- valor en riesgo).
+-- =====================================================================
+create or replace function get_co_proveedor_sin_tiempo_entrega()
+returns table (
+  co text,
+  proveedor text,
+  lineas bigint,
+  lineas_incumplidas bigint,
+  valor_bruto numeric,
+  valor_pendiente numeric,
+  primera_fecha_orden date,
+  ultima_fecha_orden date
+)
+language sql
+stable
+set search_path = public
+as $$
+  select
+    v.co,
+    v.proveedor,
+    count(*) as lineas,
+    count(*) filter (where v.observacion2 = 'INCUMPLIDO') as lineas_incumplidas,
+    coalesce(sum(v.valor_bruto), 0) as valor_bruto,
+    coalesce(sum(v.v_pendiente), 0) as valor_pendiente,
+    min(v.fecha_orden) as primera_fecha_orden,
+    max(v.fecha_orden) as ultima_fecha_orden
+  from v_ns_proveedores v
+  where v.dias_entrega_esperados is null
+  group by v.co, v.proveedor
+  order by count(*) filter (where v.observacion2 = 'INCUMPLIDO') desc, coalesce(sum(v.valor_bruto), 0) desc;
+$$;
+
+grant execute on function get_co_proveedor_sin_tiempo_entrega() to anon, authenticated;
+
+-- =====================================================================
 -- ROW LEVEL SECURITY
 -- =====================================================================
 alter table profiles enable row level security;
