@@ -177,7 +177,29 @@ separados en el cuadro de clasificación ABCD.
 - Ambas tarjetas nuevas también se agregaron a la hoja "Resumen" del
   Excel exportable y a la diapositiva de indicadores del PowerPoint.
 
-## Nuevo (última ronda): corrección masiva de fecha de orden y auditoría de proveedores sin tiempo de entrega
+## Nuevo (última ronda): Novedades rediseñada — por documento, ordenable, filtro "sin motivo"
+
+Pediste: *"en la hoja de novedades por incumplimiento aparece el detalle por c.o,
+proveedor, líneas, sin motivo y valor pendiente, pero debería quedar c.o, proveedor, nro
+documento, líneas incumplidas, valor solicitado no el pendiente y la fecha de la orden y
+fecha real de la entrada, además que si le doy clic a los títulos se organicen, que haya
+un botón para que muestre las líneas sin motivo"*.
+
+En **Novedades**, cada fila ahora es una **orden de compra específica** (C.O. +
+Proveedor + Nro documento), no un proveedor completo como antes — así "Fecha de la
+orden" y "Fecha entrega real" tienen sentido como columnas de la tabla principal:
+
+- Columnas: C.O., Proveedor, **Nro documento**, Líneas incumplidas, **Valor solicitado**
+  (antes "Valor pendiente" — ahora suma el valor completo de la orden, no solo la
+  porción pendiente), **Fecha de la orden**, **Fecha entrega real**.
+- **Clic en los títulos de columna para ordenar** (igual que en Nivel de servicio y el
+  Dashboard).
+- Nuevo botón **"Ver solo sin motivo"**: filtra la tabla para mostrar solo las órdenes
+  que todavía tienen alguna línea sin motivo asignado.
+- El detalle expandible ("Ver líneas") ahora también muestra el valor bruto de cada
+  línea, junto al valor pendiente.
+
+## Nuevo (ronda anterior): corrección masiva de fecha de orden y auditoría de proveedores sin tiempo de entrega
 
 Pediste dos cosas sobre **Nivel de servicio** y **Tiempo de entrega**:
 
@@ -203,7 +225,7 @@ Pediste dos cosas sobre **Nivel de servicio** y **Tiempo de entrega**:
    (ejemplo: C.O. 003 / PRODUCTOS RAMO SAS, 73 de 78 líneas). Registrarlas con sus días de
    entrega reales debería corregir bastante el indicador de incumplimiento.
 
-## Nuevo (ronda anterior): Dashboard reorganizado — cuadros simétricos
+## Nuevo (ronda -2): Dashboard reorganizado — cuadros simétricos
 
 Reportaste que el Dashboard "no se ve simétrico". La causa: la rejilla de cuadros usaba
 un ancho automático (`auto-fit`) que acomoda tantos cuadros como quepan por fila según
@@ -221,7 +243,7 @@ por clasificación", "Detalle por C.O.") ocupan la fila completa, así tienen m�
 antes de necesitar scroll horizontal. El gráfico de barras sigue a ancho completo al
 final, como antes.
 
-## Nuevo (ronda -2): dos motivos independientes (faltante vs. incumplimiento en tiempo) y sus tablas en el Dashboard
+## Nuevo (ronda -3): dos motivos independientes (faltante vs. incumplimiento en tiempo) y sus tablas en el Dashboard
 
 Revisando el PowerPoint exportado, detectamos que "Motivos de incumplimiento" mezclaba
 dos novedades distintas de tu proceso:
@@ -259,7 +281,7 @@ asignado (por coincidencia, porque también estaban incumplidas en tiempo).
   "Motivos por incumplimiento") y al PowerPoint (con la corrección de altura de fila de
   la sección anterior, así que no se ven distorsionadas).
 
-## Nuevo (ronda -3): proveedor único en Pareto, dos cuadros por clasificación, filtro C.O. y PowerPoint sin distorsión
+## Nuevo (ronda -4): proveedor único en Pareto, dos cuadros por clasificación, filtro C.O. y PowerPoint sin distorsión
 
 - **Bug arreglado — el mismo proveedor aparecía varias veces en
   "Clasificación de proveedores (Pareto ABCD)"**: el cuadro agrupaba por
