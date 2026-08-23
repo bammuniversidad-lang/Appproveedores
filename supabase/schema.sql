@@ -410,6 +410,21 @@ $$;
 --     histórico de ODC
 --   - manualmente con el botón "Corregir fechas de orden" en la pantalla
 --     de Nivel de servicio
+--
+-- RESPALDO DE BÚSQUEDA (agregado a pedido del usuario): la búsqueda
+-- principal cruza C.O. + Docto referencia normalizado contra C.O. + Nro
+-- orden normalizado en odc_historico. Si esa combinación no encuentra
+-- nada (por ejemplo porque el C.O. quedó mal registrado en el histórico
+-- para esa orden puntual), se intenta un segundo cruce SOLO por Docto
+-- referencia normalizado contra Nro orden normalizado, sin exigir que el
+-- C.O. coincida. Esto es seguro porque odc_historico tiene una
+-- restricción `unique (nro_orden)` -- un Nro orden solo puede
+-- corresponder a una fila en el histórico, así que este cruce de
+-- respaldo nunca puede traer más de una coincidencia por línea. Se usa
+-- coalesce(h_co.fecha, h_solo.fecha): si el cruce con C.O. encontró algo,
+-- se usa esa fecha (son la misma fila de todas formas, porque
+-- odc_historico.nro_orden es único); si no encontró nada, se usa la del
+-- cruce de respaldo.
 -- =====================================================================
 create or replace function corregir_fechas_orden_ns_proveedores()
 returns table(filas_evaluadas int, filas_corregidas int, filas_pendientes_revision int)
@@ -423,7 +438,12 @@ declare
 begin
   drop table if exists tmp_candidatas_fecha_orden;
   create temporary table tmp_candidatas_fecha_orden on commit drop as
-  select d.id, d.nro_orden, d.fecha_orden, e.fecha_entrega_real, h.fecha as fecha_historica
+  select
+    d.id,
+    d.nro_orden,
+    d.fecha_orden,
+    e.fecha_entrega_real,
+    coalesce(h_co.fecha, h_solo.fecha) as fecha_historica
   from pedidos_detalle d
   join (
     select yave, max(fecha) as fecha_entrega_real
@@ -431,9 +451,11 @@ begin
     where fecha is not null
     group by yave
   ) e on e.yave = d.yave
-  left join odc_historico h
-    on h.co = d.co
-   and normalizar_nro_orden(h.nro_orden) = normalizar_nro_orden(d.docto_referencia)
+  left join odc_historico h_co
+    on h_co.co = d.co
+   and normalizar_nro_orden(h_co.nro_orden) = normalizar_nro_orden(d.docto_referencia)
+  left join odc_historico h_solo
+    on normalizar_nro_orden(h_solo.nro_orden) = normalizar_nro_orden(d.docto_referencia)
   where d.fecha_orden is not null
     and d.fecha_orden = e.fecha_entrega_real;
 
@@ -441,9 +463,11 @@ begin
 
   -- Caso 1: se encontró la fecha real de la orden inicial en el histórico
   -- de ODC (cruzando C.O. + Docto referencia normalizado contra C.O. +
-  -- Nro orden normalizado) y es distinta a la fecha de entrada -> se
-  -- corrige "Fecha orden" automáticamente, guardando la fecha original
-  -- para trazabilidad.
+  -- Nro orden normalizado, o si eso no encontró nada, cruzando SOLO por
+  -- Docto referencia normalizado contra Nro orden normalizado -- ver nota
+  -- de "respaldo de búsqueda" arriba) y es distinta a la fecha de entrada
+  -- -> se corrige "Fecha orden" automáticamente, guardando la fecha
+  -- original para trazabilidad.
   update pedidos_detalle d
   set
     fecha_orden_original = coalesce(d.fecha_orden_original, t.fecha_orden),

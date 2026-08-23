@@ -289,9 +289,10 @@ export default function Novedades({ tema, alternarTema }) {
                             <tr>
                               <th>Referencia</th>
                               <th>Desc. item</th>
+                              <th>Cantidad pedida</th>
                               <th>Fecha orden</th>
                               <th>Fecha entrega real</th>
-                              <th>Diferencia</th>
+                              <th>Diferencia (días de entrega)</th>
                               <th>Valor bruto</th>
                               <th>Valor pendiente</th>
                               <th>Motivo</th>
@@ -302,6 +303,7 @@ export default function Novedades({ tema, alternarTema }) {
                               <tr key={l.id}>
                                 <td>{l.referencia}</td>
                                 <td>{l.desc_item}</td>
+                                <td>{Number(l.cant_ordenada ?? 0).toLocaleString('es-CO', { maximumFractionDigits: 2 })}</td>
                                 <td>{l.fecha_orden}</td>
                                 <td>{l.fecha_entrega_real || '-'}</td>
                                 <td>{l.diferencia ?? '-'}</td>
