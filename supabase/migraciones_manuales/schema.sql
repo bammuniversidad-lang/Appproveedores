@@ -584,11 +584,6 @@ create or replace view v_ns_proveedores
 
 -- =====================================================================
 -- FUNCIÓN: tarjetas de nivel de servicio para la pantalla principal
---
--- El rango "Desde/Hasta" filtra por fecha_cumplido (la fecha en que el
--- ERP marca la orden como cumplida), NO por fecha_orden -- a pedido del
--- usuario, para que las tarjetas cuadren con el mismo período que se ve
--- en la tabla de Nivel de servicio.
 -- =====================================================================
 create or replace function get_ns_proveedores_cards(
   co_list text[] default null,
@@ -613,8 +608,8 @@ as $$
   with base as (
     select * from v_ns_proveedores v
     where (co_list is null or v.co = any(co_list))
-      and (fecha_inicio is null or v.fecha_cumplido >= fecha_inicio)
-      and (fecha_fin is null or v.fecha_cumplido <= fecha_fin)
+      and (fecha_inicio is null or v.fecha_orden >= fecha_inicio)
+      and (fecha_fin is null or v.fecha_orden <= fecha_fin)
   )
   select
     count(*) as lineas_totales,

@@ -24,8 +24,6 @@ const COLUMNAS = [
   { clave: 'v_pendiente', etiqueta: 'Valor pendiente', tipo: 'moneda' },
   { clave: 'observaciones', etiqueta: 'Observaciones' },
   { clave: 'observacion2', etiqueta: 'Cumplimiento' },
-  { clave: 'motivo_nombre', etiqueta: 'Motivo (incumplimiento)' },
-  { clave: 'motivo_faltante_nombre', etiqueta: 'Motivo (faltante)' },
 ];
 
 // Mismo patrón que en Compras (es-CO): moneda sin decimales, cantidades
@@ -58,7 +56,6 @@ export default function NivelServicio({ tema, alternarTema }) {
   const [columnasOcultas, setColumnasOcultas] = useState([]);
   const [filtrosColumna, setFiltrosColumna] = useState({ referencia: '', proveedor: '', nro_orden: '', desc_item: '' });
   const [seleccionados, setSeleccionados] = useState(new Set());
-  const [motivoMasivo, setMotivoMasivo] = useState('');
   const [motivoFaltanteMasivo, setMotivoFaltanteMasivo] = useState('');
   const [fechaMasiva, setFechaMasiva] = useState('');
   const [corrigiendoMasivo, setCorrigiendoMasivo] = useState(false);
@@ -106,8 +103,11 @@ export default function NivelServicio({ tema, alternarTema }) {
   // builder para varias páginas).
   function construirConsultaFilas() {
     let consulta = supabase.from('v_ns_proveedores').select('*');
-    if (fechaInicio) consulta = consulta.gte('fecha_orden', fechaInicio);
-    if (fechaFin) consulta = consulta.lte('fecha_orden', fechaFin);
+    // El rango Desde/Hasta filtra por "Fecha cumplido" (la fecha en que el
+    // ERP marca la orden como cumplida), no por "Fecha orden" -- a pedido
+    // del usuario, para que el período coincida con el que usa el ERP.
+    if (fechaInicio) consulta = consulta.gte('fecha_cumplido', fechaInicio);
+    if (fechaFin) consulta = consulta.lte('fecha_cumplido', fechaFin);
     if (soloPorRevisar) consulta = consulta.eq('necesita_revision', true);
     if (soloIncumplido) consulta = consulta.eq('observacion2', 'INCUMPLIDO');
     if (soloConPendiente) consulta = consulta.gt('cant_pendiente_inv', 0);
@@ -383,11 +383,11 @@ export default function NivelServicio({ tema, alternarTema }) {
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
         <div>
-          <label>Desde</label><br />
+          <label>Desde (fecha cumplido)</label><br />
           <input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} />
         </div>
         <div>
-          <label>Hasta</label><br />
+          <label>Hasta (fecha cumplido)</label><br />
           <input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} />
         </div>
         <div>
@@ -443,11 +443,14 @@ export default function NivelServicio({ tema, alternarTema }) {
 
       <p style={{ fontSize: 11, opacity: 0.75, maxWidth: 760 }}>
         Hay <b>dos motivos independientes</b> por línea: "Motivo (incumplimiento)" es por
-        qué se incumplió el <b>tiempo de entrega</b> (columna Cumplimiento = INCUMPLIDO), y
-        "Motivo (faltante)" es por qué quedó <b>cantidad pendiente</b> del ítem (columna
-        Observaciones = INCOMPLETA). Marca "Solo con cantidad pendiente (faltante)" arriba,
-        selecciona todo con la casilla del encabezado y usa "Aplicar a selección" para
-        cubrir el 100% del indicador de faltantes más rápido.
+        qué se incumplió el <b>tiempo de entrega</b> (columna Cumplimiento = INCUMPLIDO) --
+        ese motivo se asigna desde <b>Novedades por incumplimiento</b>, aquí solo se muestra
+        de referencia y no se puede editar. "Motivo (faltante)" es por qué quedó{' '}
+        <b>cantidad pendiente</b> del ítem (columna Observaciones = INCOMPLETA); su lista
+        desplegable solo aparece en las líneas que sí tienen cantidad pendiente. Marca
+        "Solo con cantidad pendiente (faltante)" arriba, selecciona todo con la casilla del
+        encabezado y usa "Aplicar a selección" para cubrir el 100% del indicador de
+        faltantes más rápido.
       </p>
 
       <p style={{ fontSize: 11, opacity: 0.75, maxWidth: 760 }}>
@@ -466,15 +469,6 @@ export default function NivelServicio({ tema, alternarTema }) {
       {seleccionados.size > 0 && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
           <span>{seleccionados.size} fila(s) seleccionada(s)</span>
-          <select value={motivoMasivo} onChange={(e) => setMotivoMasivo(e.target.value)}>
-            <option value="">Asignar motivo (incumplimiento)...</option>
-            {motivos.map((m) => (
-              <option key={m.id} value={m.id}>{m.nombre}</option>
-            ))}
-          </select>
-          <button disabled={!motivoMasivo} onClick={() => asignarMotivo([...seleccionados], motivoMasivo, 'incumplimiento')}>
-            Aplicar a selección
-          </button>
           <select value={motivoFaltanteMasivo} onChange={(e) => setMotivoFaltanteMasivo(e.target.value)}>
             <option value="">Asignar motivo (faltante)...</option>
             {motivos.map((m) => (
@@ -556,21 +550,16 @@ export default function NivelServicio({ tema, alternarTema }) {
                     {formatearCelda(f[c.clave], c.tipo)}
                   </td>
                 ))}
+                <td>{f.motivo_nombre || '-'}</td>
                 <td>
-                  <select value={f.motivo_id || ''} onChange={(e) => asignarMotivo([f.id], e.target.value, 'incumplimiento')}>
-                    <option value="">Sin motivo</option>
-                    {motivos.map((m) => (
-                      <option key={m.id} value={m.id}>{m.nombre}</option>
-                    ))}
-                  </select>
-                </td>
-                <td>
-                  <select value={f.motivo_faltante_id || ''} onChange={(e) => asignarMotivo([f.id], e.target.value, 'faltante')}>
-                    <option value="">Sin motivo</option>
-                    {motivos.map((m) => (
-                      <option key={m.id} value={m.id}>{m.nombre}</option>
-                    ))}
-                  </select>
+                  {f.cant_pendiente_inv > 0 ? (
+                    <select value={f.motivo_faltante_id || ''} onChange={(e) => asignarMotivo([f.id], e.target.value, 'faltante')}>
+                      <option value="">Sin motivo</option>
+                      {motivos.map((m) => (
+                        <option key={m.id} value={m.id}>{m.nombre}</option>
+                      ))}
+                    </select>
+                  ) : '-'}
                 </td>
                 <td>
                   {f.necesita_revision && (
