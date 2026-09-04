@@ -75,9 +75,11 @@ export default function Novedades({ tema, alternarTema }) {
         let q = supabase.from('v_ns_proveedores').select('*').eq('observacion2', 'INCUMPLIDO');
         // Igual que en Nivel de servicio: el rango filtra por "Fecha
         // cumplido" (la fecha en que el ERP marca la orden como
-        // cumplida), no por "Fecha orden".
-        if (fechaInicio) q = q.gte('fecha_cumplido', fechaInicio);
-        if (fechaFin) q = q.lte('fecha_cumplido', fechaFin);
+        // cumplida), no por "Fecha orden" -- usando "fecha_referencia"
+        // (cae de vuelta a fecha_orden en las líneas que aún no tienen
+        // fecha_cumplido cargada, para que no desaparezcan del rango).
+        if (fechaInicio) q = q.gte('fecha_referencia', fechaInicio);
+        if (fechaFin) q = q.lte('fecha_referencia', fechaFin);
         return q.order('co').order('proveedor');
       });
       setFilas(datos);

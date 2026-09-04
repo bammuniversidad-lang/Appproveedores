@@ -106,8 +106,13 @@ export default function NivelServicio({ tema, alternarTema }) {
     // El rango Desde/Hasta filtra por "Fecha cumplido" (la fecha en que el
     // ERP marca la orden como cumplida), no por "Fecha orden" -- a pedido
     // del usuario, para que el período coincida con el que usa el ERP.
-    if (fechaInicio) consulta = consulta.gte('fecha_cumplido', fechaInicio);
-    if (fechaFin) consulta = consulta.lte('fecha_cumplido', fechaFin);
+    // Usa "fecha_referencia" (columna calculada en la vista) en vez de
+    // "fecha_cumplido" directo: mientras haya líneas ya cargadas sin
+    // fecha_cumplido (dato que faltaba en el archivo o con el encabezado
+    // sin calzar), esa columna cae de vuelta a fecha_orden para esa línea
+    // puntual, en vez de hacerla desaparecer por completo del rango.
+    if (fechaInicio) consulta = consulta.gte('fecha_referencia', fechaInicio);
+    if (fechaFin) consulta = consulta.lte('fecha_referencia', fechaFin);
     if (soloPorRevisar) consulta = consulta.eq('necesita_revision', true);
     if (soloIncumplido) consulta = consulta.eq('observacion2', 'INCUMPLIDO');
     if (soloConPendiente) consulta = consulta.gt('cant_pendiente_inv', 0);

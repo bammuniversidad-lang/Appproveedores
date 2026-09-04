@@ -568,7 +568,17 @@ create or replace view v_ns_proveedores
     m.nombre as motivo_nombre,
     m.responsable as motivo_responsable,
     mf.nombre as motivo_faltante_nombre,
-    mf.responsable as motivo_faltante_responsable
+    mf.responsable as motivo_faltante_responsable,
+    -- Columna que usan los filtros "Desde/Hasta" de Nivel de servicio,
+    -- Novedades y Dashboard: fecha_cumplido cuando existe, y si no,
+    -- fecha_orden. Necesaria porque muchas líneas ya cargadas NO tienen
+    -- fecha_cumplido (ver nota de "Fecha de cumplido en blanco") -- si el
+    -- filtro exigiera fecha_cumplido directamente, esas líneas
+    -- desaparecerían por completo de las 3 pantallas en vez de solo faltarles
+    -- ese dato puntual. Cuando termines de reimportar y fecha_cumplido quede
+    -- poblado para todo, este coalesce sigue funcionando igual (usa
+    -- fecha_cumplido apenas exista).
+    coalesce(c.fecha_cumplido, c.fecha_orden) as fecha_referencia
   from con_diferencia c
   left join motivos m on m.id = c.motivo_id
   left join motivos mf on mf.id = c.motivo_faltante_id;
@@ -613,8 +623,8 @@ as $$
   with base as (
     select * from v_ns_proveedores v
     where (co_list is null or v.co = any(co_list))
-      and (fecha_inicio is null or v.fecha_cumplido >= fecha_inicio)
-      and (fecha_fin is null or v.fecha_cumplido <= fecha_fin)
+      and (fecha_inicio is null or v.fecha_referencia >= fecha_inicio)
+      and (fecha_fin is null or v.fecha_referencia <= fecha_fin)
   )
   select
     count(*) as lineas_totales,
@@ -666,8 +676,8 @@ as $$
     select v.*
     from v_ns_proveedores v
     where (co_list is null or v.co = any(co_list))
-      and (fecha_inicio is null or v.fecha_cumplido >= fecha_inicio)
-      and (fecha_fin is null or v.fecha_cumplido <= fecha_fin)
+      and (fecha_inicio is null or v.fecha_referencia >= fecha_inicio)
+      and (fecha_fin is null or v.fecha_referencia <= fecha_fin)
       and (
         cross_campo is null or cross_valor is null or
         case cross_campo
