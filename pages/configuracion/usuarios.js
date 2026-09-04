@@ -43,9 +43,13 @@ export default function Usuarios({ tema, alternarTema }) {
     setUsuarios(data || []);
   }
 
+  // Usa get_cos_disponibles() (DISTINCT en la base de datos): un
+  // "select co" directo se corta en las 1000 filas que PostgREST devuelve
+  // por defecto, y como pedidos_detalle ya las supera, el filtro se
+  // quedaba solo con los C.O. de las primeras filas (001 y 002).
   async function cargarCOs() {
-    const { data: cosPedidos } = await supabase.from('pedidos_detalle').select('co');
-    const unicos = [...new Set((cosPedidos || []).map((r) => r.co))].sort();
+    const { data: cosPedidos } = await supabase.rpc('get_cos_disponibles');
+    const unicos = (cosPedidos || []).map((r) => r.co).filter(Boolean);
     setCosDisponibles(unicos);
   }
 

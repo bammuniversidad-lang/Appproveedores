@@ -593,12 +593,38 @@ create or replace view v_ns_proveedores
 -- tienes ese problema -- "create or replace view" funciona sin más.
 
 -- =====================================================================
+-- FUNCIÓN: lista de C.O. distintos que ya tienen líneas cargadas.
+--
+-- Reemplaza el patrón anterior ("select co from pedidos_detalle" desde el
+-- frontend): PostgREST limita cada consulta a 1000 filas por defecto, y
+-- como pedidos_detalle ya supera eso, el filtro de C.O. en Nivel de
+-- servicio, Dashboard y Usuarios se estaba quedando solo con los C.O. que
+-- aparecían dentro de esas primeras 1000 filas (por eso solo salían "001"
+-- y "002" -- el resto de C.O. existe, pero sus filas quedaban fuera de esa
+-- página). Esta función hace el DISTINCT en la base de datos (rápido,
+-- con el índice de "co" que ya existe) y siempre trae la lista completa.
+-- =====================================================================
+create or replace function get_cos_disponibles()
+returns table(co text)
+language sql
+stable
+set search_path = public
+as $$
+  select distinct pedidos_detalle.co
+  from pedidos_detalle
+  where pedidos_detalle.co is not null and pedidos_detalle.co <> ''
+  order by pedidos_detalle.co;
+$$;
+
+grant execute on function get_cos_disponibles() to anon, authenticated;
+
+-- =====================================================================
 -- FUNCIÓN: tarjetas de nivel de servicio para la pantalla principal
 --
--- El rango "Desde/Hasta" filtra por fecha_cumplido (la fecha en que el
--- ERP marca la orden como cumplida), NO por fecha_orden -- a pedido del
--- usuario, para que las tarjetas cuadren con el mismo período que se ve
--- en la tabla de Nivel de servicio.
+-- El rango "Desde/Hasta" filtra por fecha_referencia (fecha_cumplido, o
+-- fecha_orden si esa línea todavía no tiene fecha_cumplido cargada) --
+-- a pedido del usuario, para que las tarjetas cuadren con el mismo
+-- período que se ve en la tabla de Nivel de servicio.
 -- =====================================================================
 create or replace function get_ns_proveedores_cards(
   co_list text[] default null,

@@ -89,9 +89,13 @@ export default function Dashboard({ tema, alternarTema }) {
   const [exportando, setExportando] = useState(false);
   const [exportandoPPT, setExportandoPPT] = useState(false);
 
+  // Usa get_cos_disponibles() (DISTINCT en la base de datos): un
+  // "select co" directo se corta en las 1000 filas que PostgREST devuelve
+  // por defecto, y como pedidos_detalle ya las supera, el filtro se
+  // quedaba solo con los C.O. de las primeras filas (001 y 002).
   async function cargarCOs() {
-    const { data } = await supabase.from('pedidos_detalle').select('co');
-    setCosDisponibles([...new Set((data || []).map((r) => r.co).filter(Boolean))].sort());
+    const { data } = await supabase.rpc('get_cos_disponibles');
+    setCosDisponibles((data || []).map((r) => r.co).filter(Boolean));
   }
 
   async function cargar() {

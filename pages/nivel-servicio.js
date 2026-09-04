@@ -94,9 +94,14 @@ export default function NivelServicio({ tema, alternarTema }) {
     setMotivos(data || []);
   }
 
+  // Usa la función get_cos_disponibles() (DISTINCT en la base de datos) en
+  // vez de traer la columna "co" completa: pedidos_detalle ya supera las
+  // 1000 filas que PostgREST devuelve por defecto, así que un "select co"
+  // directo se quedaba corto y solo mostraba los C.O. de las primeras
+  // filas (por eso solo aparecían 001 y 002).
   async function cargarCOs() {
-    const { data } = await supabase.from('pedidos_detalle').select('co');
-    setCosDisponibles([...new Set((data || []).map((r) => r.co).filter(Boolean))].sort());
+    const { data } = await supabase.rpc('get_cos_disponibles');
+    setCosDisponibles((data || []).map((r) => r.co).filter(Boolean));
   }
 
   // Arma una consulta NUEVA cada vez (no se puede reutilizar el mismo query
