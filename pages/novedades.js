@@ -73,8 +73,11 @@ export default function Novedades({ tema, alternarTema }) {
     try {
       const datos = await obtenerTodo(() => {
         let q = supabase.from('v_ns_proveedores').select('*').eq('observacion2', 'INCUMPLIDO');
-        if (fechaInicio) q = q.gte('fecha_orden', fechaInicio);
-        if (fechaFin) q = q.lte('fecha_orden', fechaFin);
+        // Igual que en Nivel de servicio: el rango filtra por "Fecha
+        // cumplido" (la fecha en que el ERP marca la orden como
+        // cumplida), no por "Fecha orden".
+        if (fechaInicio) q = q.gte('fecha_cumplido', fechaInicio);
+        if (fechaFin) q = q.lte('fecha_cumplido', fechaFin);
         return q.order('co').order('proveedor');
       });
       setFilas(datos);
@@ -194,11 +197,11 @@ export default function Novedades({ tema, alternarTema }) {
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
         <div>
-          <label>Desde</label><br />
+          <label>Desde (fecha cumplido)</label><br />
           <input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} />
         </div>
         <div>
-          <label>Hasta</label><br />
+          <label>Hasta (fecha cumplido)</label><br />
           <input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} />
         </div>
         <label style={{ marginTop: 16 }}>

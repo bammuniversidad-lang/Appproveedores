@@ -645,6 +645,10 @@ $$;
 --   - completas = sin pendientes Y a tiempo (OTIF a nivel de orden).
 --   - OTIF = (órdenes a tiempo / total) * (órdenes sin pendientes / total),
 --     tal como lo definiste.
+--
+-- El rango "Desde/Hasta" filtra por fecha_cumplido (no por fecha_orden),
+-- igual que Nivel de servicio y Novedades -- para que los tres cuadren
+-- con el mismo período.
 -- =====================================================================
 create or replace function get_ns_proveedores_dashboard(
   co_list text[] default null,
@@ -662,8 +666,8 @@ as $$
     select v.*
     from v_ns_proveedores v
     where (co_list is null or v.co = any(co_list))
-      and (fecha_inicio is null or v.fecha_orden >= fecha_inicio)
-      and (fecha_fin is null or v.fecha_orden <= fecha_fin)
+      and (fecha_inicio is null or v.fecha_cumplido >= fecha_inicio)
+      and (fecha_fin is null or v.fecha_cumplido <= fecha_fin)
       and (
         cross_campo is null or cross_valor is null or
         case cross_campo

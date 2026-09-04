@@ -197,11 +197,11 @@ export default function Dashboard({ tema, alternarTema }) {
 
       <div className="panel-dashboard panel-filtros" style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <div>
-          <label>Desde</label><br />
+          <label>Desde (fecha cumplido)</label><br />
           <input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} />
         </div>
         <div>
-          <label>Hasta</label><br />
+          <label>Hasta (fecha cumplido)</label><br />
           <input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} />
         </div>
         <div>
