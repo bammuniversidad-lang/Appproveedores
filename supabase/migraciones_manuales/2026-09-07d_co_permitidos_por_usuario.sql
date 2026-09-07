@@ -101,14 +101,14 @@ create policy "pedidos_detalle segun co permitidos" on pedidos_detalle
     (select auth.role()) = 'authenticated'
     and (
       (select public.usuario_ve_todos_co())
-      or co = any ((select public.usuario_cos_permitidos()))
+      or co = any ((select public.usuario_cos_permitidos())::text[])
     )
   )
   with check (
     (select auth.role()) = 'authenticated'
     and (
       (select public.usuario_ve_todos_co())
-      or co = any ((select public.usuario_cos_permitidos()))
+      or co = any ((select public.usuario_cos_permitidos())::text[])
     )
   );
 
