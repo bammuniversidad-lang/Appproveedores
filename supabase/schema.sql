@@ -196,6 +196,15 @@ create table if not exists pedidos_detalle (
 create index if not exists idx_pedidos_detalle_co on pedidos_detalle(co);
 create index if not exists idx_pedidos_detalle_nro_orden on pedidos_detalle(nro_orden);
 create index if not exists idx_pedidos_detalle_fecha_orden on pedidos_detalle(fecha_orden);
+-- Índice de expresión para "fecha_referencia" (coalesce(fecha_cumplido,
+-- fecha_orden) en v_ns_proveedores): sin este índice, el filtro
+-- Desde/Hasta de Nivel de servicio, Novedades y Dashboard no podía usar
+-- ningún índice (coalesce() sobre dos columnas no calza con un índice
+-- normal de una sola columna) y terminaba recorriendo TODA la tabla
+-- pedidos_detalle en cada consulta -- otra causa importante de la
+-- lentitud, que empeora con cada carga porque la tabla es acumulativa.
+create index if not exists idx_pedidos_detalle_fecha_referencia
+  on pedidos_detalle (coalesce(fecha_cumplido, fecha_orden));
 create index if not exists idx_pedidos_detalle_revision on pedidos_detalle(necesita_revision) where necesita_revision = true;
 create index if not exists idx_pedidos_detalle_cargado_por on pedidos_detalle(cargado_por);
 create index if not exists idx_pedidos_detalle_motivo_asignado_por on pedidos_detalle(motivo_asignado_por);
@@ -532,20 +541,29 @@ $$;
 -- =====================================================================
 create or replace view v_ns_proveedores
   with (security_invoker = true) as
-  with entregas as (
-    select yave, max(fecha) as fecha_entrega_real
-    from entradas_ea
-    where fecha is not null
-    group by yave
-  ),
-  base as (
+  -- "base" busca la fecha de entrega real de cada línea con un LATERAL +
+  -- "order by fecha desc limit 1" (en vez de agrupar TODA entradas_ea con
+  -- "group by yave" como antes). Con el índice idx_entradas_ea_yave_fecha
+  -- (yave, fecha desc), esto se resuelve con un Index Scan acotado a cada
+  -- yave -- muy rápido y NO depende del tamaño total de entradas_ea. La
+  -- versión anterior agregaba la tabla completa de entradas en cada
+  -- consulta (tarjetas, tabla, novedades, dashboard), sin importar cuántas
+  -- filas pidiera el rango de fechas -- esa era la causa principal de la
+  -- lentitud y de los "statement timeout".
+  with base as (
     select
       d.*,
-      e.fecha_entrega_real,
+      ea.fecha_entrega_real,
       case when d.cant_pendiente_inv = 0 then 'COMPLETA' else 'INCOMPLETA' end as observaciones,
       (d.cant_pendiente_inv * d.precio_unit) as v_pendiente
     from pedidos_detalle d
-    left join entregas e on e.yave = d.yave
+    left join lateral (
+      select e.fecha as fecha_entrega_real
+      from entradas_ea e
+      where e.yave = d.yave and e.fecha is not null
+      order by e.fecha desc
+      limit 1
+    ) ea on true
   ),
   con_diferencia as (
     select

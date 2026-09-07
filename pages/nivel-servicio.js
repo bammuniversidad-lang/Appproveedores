@@ -118,7 +118,14 @@ export default function NivelServicio({ tema, alternarTema }) {
     // puntual, en vez de hacerla desaparecer por completo del rango.
     if (fechaInicio) consulta = consulta.gte('fecha_referencia', fechaInicio);
     if (fechaFin) consulta = consulta.lte('fecha_referencia', fechaFin);
-    if (soloPorRevisar) consulta = consulta.eq('necesita_revision', true);
+    // "Solo por revisar": una línea puede quedar marcada necesita_revision
+    // = true de nuevo en una carga posterior (si su fecha_orden ya
+    // corregida coincide otra vez con una nueva fecha de entrada) aunque
+    // YA tenga guardada su fecha_orden_original de una corrección
+    // anterior -- esa línea no es "nueva por revisar", ya se resolvió
+    // antes. Por eso este filtro exige además que fecha_orden_original
+    // esté vacía (nunca se ha corregido).
+    if (soloPorRevisar) consulta = consulta.eq('necesita_revision', true).is('fecha_orden_original', null);
     if (soloIncumplido) consulta = consulta.eq('observacion2', 'INCUMPLIDO');
     if (soloConPendiente) consulta = consulta.gt('cant_pendiente_inv', 0);
     if (co) consulta = consulta.eq('co', co);
