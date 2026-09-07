@@ -89,8 +89,17 @@ export default function CierreMes({ tema, alternarTema }) {
     setError('');
     setMensaje('');
     try {
+      // El ".order('id')" del final NO es cosmético: el respaldo se descarga
+      // por páginas de 1000 filas, y para que la paginación no pierda ni
+      // duplique filas el orden tiene que ser ÚNICO. (C.O. + Nro orden) no lo
+      // es -- una orden tiene muchas líneas con esos dos valores iguales --,
+      // así que con empates la base no garantiza el mismo orden en cada
+      // página y las filas de la frontera podían salir dos veces o ninguna.
+      // Este es el archivo que se descarga justo antes del borrado
+      // irreversible del cierre de mes, así que aquí una pérdida silenciosa
+      // es una pérdida definitiva.
       const datos = await obtenerTodo(() =>
-        supabase.from('v_ns_proveedores').select('*').order('co').order('nro_orden')
+        supabase.from('v_ns_proveedores').select('*').order('co').order('nro_orden').order('id')
       );
       const filas = datos.map(filaParaExcel);
       const nombreArchivo = `NS PROVEEDORES - ${nombreMesAbreviado(hoyISO())}.xlsx`;

@@ -36,7 +36,7 @@ function formatearCelda(valor, tipo) {
 }
 
 function claseFilaRevision(fila) {
-  if (fila.necesita_revision) return 'celda-roja-metal';
+  if (fila.necesita_revision_actual) return 'celda-roja-metal';
   if (fila.fecha_orden_corregida) return 'celda-amarilla-metal';
   return '';
 }
@@ -118,14 +118,15 @@ export default function NivelServicio({ tema, alternarTema }) {
     // puntual, en vez de hacerla desaparecer por completo del rango.
     if (fechaInicio) consulta = consulta.gte('fecha_referencia', fechaInicio);
     if (fechaFin) consulta = consulta.lte('fecha_referencia', fechaFin);
-    // "Solo por revisar": una línea puede quedar marcada necesita_revision
-    // = true de nuevo en una carga posterior (si su fecha_orden ya
-    // corregida coincide otra vez con una nueva fecha de entrada) aunque
-    // YA tenga guardada su fecha_orden_original de una corrección
-    // anterior -- esa línea no es "nueva por revisar", ya se resolvió
-    // antes. Por eso este filtro exige además que fecha_orden_original
-    // esté vacía (nunca se ha corregido).
-    if (soloPorRevisar) consulta = consulta.eq('necesita_revision', true).is('fecha_orden_original', null);
+    // "Solo por revisar": usa "necesita_revision_actual" (calculada en
+    // vivo en la vista) en vez de la columna "necesita_revision" guardada
+    // en la tabla -- esa columna guardada solo se recalcula cuando corre
+    // la corrección automática (al importar o con el botón), así que
+    // puede quedar desactualizada si después cambia la fecha de entrega
+    // real. La versión en vivo siempre refleja los datos actuales: solo
+    // es true si nunca se ha corregido (fecha_orden_original vacía) Y la
+    // fecha de orden sigue siendo igual a la fecha de entrega real.
+    if (soloPorRevisar) consulta = consulta.eq('necesita_revision_actual', true);
     if (soloIncumplido) consulta = consulta.eq('observacion2', 'INCUMPLIDO');
     if (soloConPendiente) consulta = consulta.gt('cant_pendiente_inv', 0);
     if (co) consulta = consulta.eq('co', co);
@@ -137,7 +138,18 @@ export default function NivelServicio({ tema, alternarTema }) {
   // en 1000 líneas y los totales no cuadran con el Dashboard, que sí calcula
   // sobre TODAS las filas dentro de la base de datos. Aquí se pide página
   // por página hasta traer todo.
+  //
+  // "cargaIdRef" evita una condición de carrera: si el usuario cambia un
+  // filtro (ej. marca "Solo por revisar") mientras la carga ANTERIOR
+  // (sin ese filtro) todavía está en camino, esa respuesta vieja podía
+  // llegar DESPUÉS y sobreescribir la tabla ya filtrada con los datos sin
+  // filtrar -- se veía como "filtra y al momento vuelve a mostrar todo".
+  // Cada llamada a cargarFilas() saca un número; si al terminar ya no es
+  // el número más reciente, se descarta esa respuesta en vez de aplicarla.
+  const cargaIdRef = useRef(0);
+
   async function cargarFilas() {
+    const idDeEstaCarga = ++cargaIdRef.current;
     setCargando(true);
     const TAMANO_PAGINA = 1000;
     let desde = 0;
@@ -154,6 +166,7 @@ export default function NivelServicio({ tema, alternarTema }) {
       if (!data || data.length < TAMANO_PAGINA) break;
       desde += TAMANO_PAGINA;
     }
+    if (idDeEstaCarga !== cargaIdRef.current) return; // llegó una carga más nueva primero: se descarta esta
     if (errorFinal) {
       setMensaje(`Error cargando datos: ${errorFinal.message}`);
       setFilas([]);
@@ -333,7 +346,7 @@ export default function NivelServicio({ tema, alternarTema }) {
       'Fecha orden': f.fecha_orden,
       'Fecha orden original': f.fecha_orden_original,
       'Corregida automáticamente': f.fecha_orden_corregida ? 'Sí' : 'No',
-      'Necesita revisión': f.necesita_revision ? 'Sí' : 'No',
+      'Necesita revisión': f.necesita_revision_actual ? 'Sí' : 'No',
       'Fecha entrega real': f.fecha_entrega_real,
       'Cant. ordenada': f.cant_ordenada,
       'Cant. entrada inv.': f.cant_entrada_inv,
@@ -579,7 +592,7 @@ export default function NivelServicio({ tema, alternarTema }) {
                   ) : '-'}
                 </td>
                 <td>
-                  {f.necesita_revision && (
+                  {f.necesita_revision_actual && (
                     <input
                       type="date"
                       defaultValue=""

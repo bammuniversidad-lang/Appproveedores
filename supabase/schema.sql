@@ -102,8 +102,13 @@ create table if not exists odc_historico (
   constraint odc_historico_unico unique (nro_orden)
 );
 
-create index if not exists idx_odc_historico_nro_orden on odc_historico(nro_orden);
+-- Nota: NO se crea un índice sobre odc_historico(nro_orden): la restricción
+-- "odc_historico_unico unique (nro_orden)" de arriba ya crea uno idéntico.
+-- Tener los dos no acelera nada y obliga a actualizar dos índices en cada
+-- fila que se carga.
 create index if not exists idx_odc_historico_cargado_por on odc_historico(cargado_por);
+-- (El índice de expresión sobre normalizar_nro_orden(nro_orden) se crea más
+-- abajo, justo después de definir esa función.)
 
 -- ---------------------------------------------------------------------
 -- 5. ENTRADAS / EVALUACIÓN DE PROVEEDORES (hoja "EA") - acumulativa.
@@ -134,7 +139,10 @@ create table if not exists entradas_ea (
   cargado_en timestamptz not null default now()
 );
 
-create index if not exists idx_entradas_ea_yave on entradas_ea(yave);
+-- Nota: NO se crea un índice suelto sobre entradas_ea(yave): el índice
+-- compuesto (yave, fecha desc) de abajo ya cubre cualquier búsqueda por
+-- yave, porque yave es su primera columna. Tener los dos solo agrega
+-- trabajo en cada una de las miles de filas que entran por carga de EA.
 create index if not exists idx_entradas_ea_cargado_por on entradas_ea(cargado_por);
 -- Acelera "select yave, max(fecha) from entradas_ea group by yave" (se usa
 -- en cada consulta de v_ns_proveedores, sea la pantalla, las tarjetas o
@@ -416,6 +424,19 @@ as $$
   select nullif(ltrim(regexp_replace(coalesce(texto, ''), '[^0-9]', '', 'g'), '0'), '');
 $$;
 
+-- Índices de expresión para el cruce de corregir_fechas_orden_ns_proveedores().
+-- Ese cruce compara normalizar_nro_orden(...) en los dos lados, así que los
+-- índices sobre las columnas crudas (incluido el de la restricción única de
+-- odc_historico) NO le sirven. Sin estos dos, cada corrida -- y corre
+-- automáticamente después de CADA importación: Pedidos, EA y ODC -- tiene que
+-- calcular la función sobre todas las filas de las dos tablas, dos veces
+-- (son dos cruces: el de C.O. + Docto referencia y el de respaldo).
+-- Se pueden indexar porque normalizar_nro_orden es "immutable".
+create index if not exists idx_odc_historico_nro_orden_norm
+  on odc_historico (normalizar_nro_orden(nro_orden));
+create index if not exists idx_pedidos_detalle_docto_ref_norm
+  on pedidos_detalle (normalizar_nro_orden(docto_referencia));
+
 -- =====================================================================
 -- FUNCIÓN CLAVE: corrige automáticamente "Fecha orden" cuando quedó
 -- igual a la fecha real de entrada, usando el histórico de ODC, y marca
@@ -456,9 +477,17 @@ $$;
 -- odc_historico.nro_orden es único); si no encontró nada, se usa la del
 -- cruce de respaldo.
 -- =====================================================================
+-- "security definer": esta rutina de mantenimiento tiene que evaluar y
+-- corregir TODAS las líneas, sin importar a qué C.O. tenga acceso quien
+-- dispara la importación (ver la restricción por C.O. en la sección de RLS
+-- más abajo). Si corriera con los permisos del usuario, un comprador
+-- restringido a un C.O. dejaría el resto de las líneas sin corregir y sin
+-- marcar. No recibe parámetros y su lógica es fija, así que no hay forma de
+-- inyectarle nada.
 create or replace function corregir_fechas_orden_ns_proveedores()
 returns table(filas_evaluadas int, filas_corregidas int, filas_pendientes_revision int)
 language plpgsql
+security definer
 set search_path = public
 as $$
 declare
@@ -481,11 +510,35 @@ begin
     where fecha is not null
     group by yave
   ) e on e.yave = d.yave
-  left join odc_historico h_co
-    on h_co.co = d.co
-   and normalizar_nro_orden(h_co.nro_orden) = normalizar_nro_orden(d.docto_referencia)
-  left join odc_historico h_solo
-    on normalizar_nro_orden(h_solo.nro_orden) = normalizar_nro_orden(d.docto_referencia)
+  -- Los dos cruces contra el histórico van como subconsultas LATERAL con
+  -- "limit 1" en vez de left join directo. Motivo (corregido en la
+  -- auditoría): la restricción "unique (nro_orden)" de odc_historico es
+  -- sobre el Nro orden CRUDO, pero el cruce se hace sobre el NORMALIZADO
+  -- -- y dos valores crudos distintos y perfectamente válidos para esa
+  -- restricción ("ODC-00189722" y "189722") normalizan al mismo texto.
+  -- Si el histórico llegaba a tener los dos (p. ej. porque el ERP cambió
+  -- el formato del archivo entre meses), la línea entraba DOS VECES en
+  -- esta tabla temporal: el UPDATE de abajo aplicaba una de las dos
+  -- fechas de forma arbitraria y el conteo de "líneas evaluadas" quedaba
+  -- inflado. Con LATERAL + limit 1 se garantiza como máximo una
+  -- coincidencia por línea, tomando siempre la fecha más antigua (que es
+  -- la de la orden original) para que el resultado sea estable y
+  -- repetible.
+  left join lateral (
+    select h.fecha
+    from odc_historico h
+    where h.co = d.co
+      and normalizar_nro_orden(h.nro_orden) = normalizar_nro_orden(d.docto_referencia)
+    order by h.fecha
+    limit 1
+  ) h_co on true
+  left join lateral (
+    select h.fecha
+    from odc_historico h
+    where normalizar_nro_orden(h.nro_orden) = normalizar_nro_orden(d.docto_referencia)
+    order by h.fecha
+    limit 1
+  ) h_solo on true
   where d.fecha_orden is not null
     and d.fecha_orden = e.fecha_entrega_real;
 
@@ -596,7 +649,22 @@ create or replace view v_ns_proveedores
     -- ese dato puntual. Cuando termines de reimportar y fecha_cumplido quede
     -- poblado para todo, este coalesce sigue funcionando igual (usa
     -- fecha_cumplido apenas exista).
-    coalesce(c.fecha_cumplido, c.fecha_orden) as fecha_referencia
+    coalesce(c.fecha_cumplido, c.fecha_orden) as fecha_referencia,
+    -- "necesita_revision" (columna guardada en pedidos_detalle) se
+    -- calcula la última vez que corrió corregir_fechas_orden_ns_proveedores()
+    -- (al importar, o con el botón "Corregir fechas de orden") y se queda
+    -- ahí tal cual hasta la próxima corrida -- si después llega una nueva
+    -- entrada de EA que cambia fecha_entrega_real, la columna guardada
+    -- puede quedar "vencida" (todavía en true aunque fecha_orden ya no sea
+    -- igual a la fecha_entrega_real actual). Esta columna recalcula la
+    -- condición EN VIVO con los datos actuales, así que nunca se desfasa:
+    -- solo es true cuando de verdad sigue sin resolverse (nunca se corrigió
+    -- Y la fecha de orden sigue siendo igual a la fecha de entrega real).
+    (
+      c.fecha_orden_original is null
+      and c.fecha_entrega_real is not null
+      and c.fecha_orden = c.fecha_entrega_real
+    ) as necesita_revision_actual
   from con_diferencia c
   left join motivos m on m.id = c.motivo_id
   left join motivos mf on mf.id = c.motivo_faltante_id;
@@ -680,7 +748,7 @@ as $$
     coalesce(sum(v_pendiente), 0) as valor_pendiente,
     case when coalesce(sum(valor_bruto), 0) = 0 then 0
       else round(1 - (coalesce(sum(v_pendiente), 0) / sum(valor_bruto)), 4) end as ns_valor,
-    count(*) filter (where necesita_revision) as lineas_por_revisar,
+    count(*) filter (where necesita_revision_actual) as lineas_por_revisar,
     count(*) filter (where fecha_orden_corregida) as lineas_corregidas_automaticamente
   from base;
 $$;
@@ -1214,6 +1282,49 @@ revoke execute on function public.es_administrador() from public;
 revoke execute on function public.es_administrador() from anon;
 grant execute on function public.es_administrador() to authenticated;
 
+-- Restricción por C.O. (Configuración > Usuarios). Igual que
+-- es_administrador(): son "security definer" porque tienen que leer profiles
+-- por dentro sin volver a pasar por la RLS de profiles (eso daría recursión
+-- infinita). Son "stable" y sin parámetros, así que dentro de una política
+-- envueltas en (select ...) Postgres las evalúa UNA vez por consulta, no una
+-- vez por fila.
+create or replace function public.usuario_ve_todos_co()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select coalesce(
+    (
+      select p.ve_todos_co or p.rol = 'administrador'
+      from profiles p
+      where p.id = auth.uid()
+    ),
+    false
+  );
+$$;
+
+create or replace function public.usuario_cos_permitidos()
+returns text[]
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select coalesce(
+    (select p.cos_permitidos from profiles p where p.id = auth.uid()),
+    '{}'::text[]
+  );
+$$;
+
+revoke execute on function public.usuario_ve_todos_co() from public;
+revoke execute on function public.usuario_ve_todos_co() from anon;
+grant execute on function public.usuario_ve_todos_co() to authenticated;
+revoke execute on function public.usuario_cos_permitidos() from public;
+revoke execute on function public.usuario_cos_permitidos() from anon;
+grant execute on function public.usuario_cos_permitidos() to authenticated;
+
 create policy "ver propio perfil o admin ve todos" on profiles
   for select using (
     (select auth.uid()) = id
@@ -1245,8 +1356,39 @@ create policy "autenticados leen y escriben odc_historico" on odc_historico
 create policy "autenticados leen y escriben entradas_ea" on entradas_ea
   for all using ((select auth.role()) = 'authenticated');
 
-create policy "autenticados leen y escriben pedidos_detalle" on pedidos_detalle
-  for all using ((select auth.role()) = 'authenticated');
+-- pedidos_detalle es la ÚNICA tabla restringida por C.O.: es la que tiene el
+-- dato transaccional que el usuario ve en pantalla. Como v_ns_proveedores se
+-- construye sobre ella y está declarada "security_invoker = true", el filtro
+-- se propaga solo a TODO lo que consulta esa vista: Nivel de servicio,
+-- Novedades, Dashboard, las tarjetas, el respaldo del cierre de mes y hasta
+-- la lista desplegable de C.O. (get_cos_disponibles lee pedidos_detalle). No
+-- hay que filtrar nada a mano en el frontend, y no se puede saltar el filtro
+-- llamando la API directamente.
+--
+-- Quién ve todo: los administradores, y cualquier usuario con la casilla
+-- "Ve todos los C.O." marcada. Los demás ven solo los C.O. de su lista.
+--
+-- OJO al activar esto por primera vez: un usuario sin "ve todos los C.O." y
+-- con la lista vacía deja de ver CUALQUIER línea. Por eso la migración que
+-- acompaña este cambio pone "ve todos los C.O." en todos los usuarios que ya
+-- existían, para que nadie pierda acceso de un día para otro; a partir de
+-- ahí el administrador restringe uno por uno desde Configuración > Usuarios.
+create policy "pedidos_detalle segun co permitidos" on pedidos_detalle
+  for all
+  using (
+    (select auth.role()) = 'authenticated'
+    and (
+      (select public.usuario_ve_todos_co())
+      or co = any ((select public.usuario_cos_permitidos()))
+    )
+  )
+  with check (
+    (select auth.role()) = 'authenticated'
+    and (
+      (select public.usuario_ve_todos_co())
+      or co = any ((select public.usuario_cos_permitidos()))
+    )
+  );
 
 create policy "autenticados leen logs" on import_logs
   for select using ((select auth.role()) = 'authenticated');

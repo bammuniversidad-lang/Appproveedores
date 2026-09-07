@@ -211,6 +211,13 @@ export default function Usuarios({ tema, alternarTema }) {
           {!form.ve_todos_co && (
             <div style={{ marginBottom: 8 }}>
               <label>C.O. que puede ver</label><br />
+              <p style={{ fontSize: 11, opacity: 0.75, margin: '2px 0 6px', maxWidth: 520 }}>
+                La restricción se aplica en la base de datos, así que cubre <b>todas</b> las
+                pantallas (Nivel de servicio, Novedades, Dashboard), las descargas a Excel y
+                el filtro de C.O., que solo mostrará los C.O. permitidos. Un administrador
+                siempre ve todos los C.O., sin importar lo que se marque aquí.{' '}
+                <b>Si no marcas ningún C.O., ese usuario no verá ninguna línea.</b>
+              </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {cosDisponibles.length === 0 && <span style={{ opacity: 0.7 }}>Aún no hay C.O. creados</span>}
                 {cosDisponibles.map((co) => (
