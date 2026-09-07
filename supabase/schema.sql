@@ -748,7 +748,15 @@ as $$
     coalesce(sum(v_pendiente), 0) as valor_pendiente,
     case when coalesce(sum(valor_bruto), 0) = 0 then 0
       else round(1 - (coalesce(sum(v_pendiente), 0) / sum(valor_bruto)), 4) end as ns_valor,
-    count(*) filter (where necesita_revision_actual) as lineas_por_revisar,
+    -- Misma condición que usa la pantalla (esPorRevisar en nivel-servicio.js),
+    -- escrita con las columnas base en vez de con necesita_revision_actual:
+    -- así la tarjeta cuenta exactamente lo mismo que se lista, y no depende
+    -- de que la columna calculada de la vista esté al día.
+    count(*) filter (
+      where fecha_orden_original is null
+        and fecha_entrega_real is not null
+        and fecha_orden = fecha_entrega_real
+    ) as lineas_por_revisar,
     count(*) filter (where fecha_orden_corregida) as lineas_corregidas_automaticamente
   from base;
 $$;

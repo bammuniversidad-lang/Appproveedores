@@ -35,8 +35,27 @@ function formatearCelda(valor, tipo) {
   return valor;
 }
 
+// "Por revisar" = la fecha de orden todavía quedó igual a la fecha real de
+// entrada (o sea, sigue sin resolverse) Y nunca se ha corregido.
+//
+// A propósito se calcula AQUÍ, con las tres fechas que la propia fila ya
+// tiene a la vista, en vez de confiar en una columna que venga de la base:
+//   - la columna guardada "necesita_revision" solo se recalcula cuando corre
+//     la corrección automática, así que puede quedar vencida;
+//   - la columna calculada "necesita_revision_actual" es correcta, pero
+//     depende de que la vista de la base esté actualizada.
+// Calculándolo aquí, lo que se ve en pantalla SIEMPRE coincide con lo que
+// dicen las columnas "Fecha orden", "Fecha entrega real" y "Fecha orden
+// original" de esa misma fila. Si las dos fechas no son iguales, la línea no
+// se marca ni se lista, sin importar qué diga la base.
+function esPorRevisar(fila) {
+  if (fila.fecha_orden_original) return false;
+  if (!fila.fecha_orden || !fila.fecha_entrega_real) return false;
+  return fila.fecha_orden === fila.fecha_entrega_real;
+}
+
 function claseFilaRevision(fila) {
-  if (fila.necesita_revision_actual) return 'celda-roja-metal';
+  if (esPorRevisar(fila)) return 'celda-roja-metal';
   if (fila.fecha_orden_corregida) return 'celda-amarilla-metal';
   return '';
 }
@@ -118,15 +137,19 @@ export default function NivelServicio({ tema, alternarTema }) {
     // puntual, en vez de hacerla desaparecer por completo del rango.
     if (fechaInicio) consulta = consulta.gte('fecha_referencia', fechaInicio);
     if (fechaFin) consulta = consulta.lte('fecha_referencia', fechaFin);
-    // "Solo por revisar": usa "necesita_revision_actual" (calculada en
-    // vivo en la vista) en vez de la columna "necesita_revision" guardada
-    // en la tabla -- esa columna guardada solo se recalcula cuando corre
-    // la corrección automática (al importar o con el botón), así que
-    // puede quedar desactualizada si después cambia la fecha de entrega
-    // real. La versión en vivo siempre refleja los datos actuales: solo
-    // es true si nunca se ha corregido (fecha_orden_original vacía) Y la
-    // fecha de orden sigue siendo igual a la fecha de entrega real.
-    if (soloPorRevisar) consulta = consulta.eq('necesita_revision_actual', true);
+    // "Solo por revisar": aquí solo se pide al servidor la parte que se
+    // puede expresar sin depender de ninguna columna calculada -- las
+    // líneas que nunca se han corregido. La condición completa (que la
+    // fecha de orden siga siendo igual a la fecha de entrega real) se
+    // aplica después sobre las filas ya traídas, en esPorRevisar().
+    //
+    // Se hace así a propósito: comparar dos columnas entre sí no se puede
+    // pedir por la API, y depender de una columna calculada en la vista
+    // significa que si esa vista queda desactualizada el filtro falla en
+    // silencio (o la consulta da error). Calculándolo sobre las fechas que
+    // ya vienen en cada fila, el resultado no puede desviarse de lo que
+    // muestra la tabla.
+    if (soloPorRevisar) consulta = consulta.is('fecha_orden_original', null);
     if (soloIncumplido) consulta = consulta.eq('observacion2', 'INCUMPLIDO');
     if (soloConPendiente) consulta = consulta.gt('cant_pendiente_inv', 0);
     if (co) consulta = consulta.eq('co', co);
@@ -346,7 +369,7 @@ export default function NivelServicio({ tema, alternarTema }) {
       'Fecha orden': f.fecha_orden,
       'Fecha orden original': f.fecha_orden_original,
       'Corregida automáticamente': f.fecha_orden_corregida ? 'Sí' : 'No',
-      'Necesita revisión': f.necesita_revision_actual ? 'Sí' : 'No',
+      'Necesita revisión': esPorRevisar(f) ? 'Sí' : 'No',
       'Fecha entrega real': f.fecha_entrega_real,
       'Cant. ordenada': f.cant_ordenada,
       'Cant. entrada inv.': f.cant_entrada_inv,
@@ -372,7 +395,13 @@ export default function NivelServicio({ tema, alternarTema }) {
   );
 
   const filasOrdenadas = useMemo(() => {
-    const ordenadas = ordenarFilas(filas, orden);
+    // Red de seguridad de "Solo por revisar": la consulta ya lo filtra en el
+    // servidor, pero aquí se vuelve a comprobar con las fechas de la propia
+    // fila. Así, si la vista de la base quedara desactualizada o el navegador
+    // tuviera una versión vieja en caché, igual es IMPOSIBLE que se liste una
+    // línea cuya fecha de orden no sea igual a la fecha de entrega real.
+    const base = soloPorRevisar ? filas.filter(esPorRevisar) : filas;
+    const ordenadas = ordenarFilas(base, orden);
     const filtrosActivos = Object.entries(filtrosColumna).filter(([, v]) => v.trim() !== '');
     if (filtrosActivos.length === 0) return ordenadas;
     return ordenadas.filter((f) =>
@@ -381,7 +410,7 @@ export default function NivelServicio({ tema, alternarTema }) {
       )
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filas, orden, filtrosColumna]);
+  }, [filas, orden, filtrosColumna, soloPorRevisar]);
   const todosVisiblesSeleccionados = filasOrdenadas.length > 0 && filasOrdenadas.every((f) => seleccionados.has(f.id));
 
   return (
@@ -592,7 +621,7 @@ export default function NivelServicio({ tema, alternarTema }) {
                   ) : '-'}
                 </td>
                 <td>
-                  {f.necesita_revision_actual && (
+                  {esPorRevisar(f) && (
                     <input
                       type="date"
                       defaultValue=""
