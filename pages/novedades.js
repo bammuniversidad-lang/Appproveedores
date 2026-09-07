@@ -80,7 +80,10 @@ export default function Novedades({ tema, alternarTema }) {
         // fecha_cumplido cargada, para que no desaparezcan del rango).
         if (fechaInicio) q = q.gte('fecha_referencia', fechaInicio);
         if (fechaFin) q = q.lte('fecha_referencia', fechaFin);
-        return q.order('co').order('proveedor');
+        // ".order('id')" al final: sin un orden ÚNICO, la descarga por
+        // páginas de 1000 puede repetir o perder filas en los empates de la
+        // frontera (C.O. + Proveedor se repite en muchísimas líneas).
+        return q.order('co').order('proveedor').order('id');
       });
       setFilas(datos);
     } catch (e) {

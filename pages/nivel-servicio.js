@@ -153,7 +153,20 @@ export default function NivelServicio({ tema, alternarTema }) {
     if (soloIncumplido) consulta = consulta.eq('observacion2', 'INCUMPLIDO');
     if (soloConPendiente) consulta = consulta.gt('cant_pendiente_inv', 0);
     if (co) consulta = consulta.eq('co', co);
-    return consulta.order('co', { ascending: true }).order('nro_orden', { ascending: true });
+    // El ".order('id')" del final es OBLIGATORIO, no cosmético: la tabla se
+    // descarga en páginas de 1000 filas, y para que la paginación no repita
+    // ni pierda filas el orden tiene que ser ÚNICO. (C.O. + Nro orden) no lo
+    // es -- una orden tiene varias líneas con esos dos valores iguales (p.ej.
+    // ODC-00061891 de LATEXPORT tiene 3) --, así que en los empates de la
+    // frontera entre páginas la base puede devolver la misma fila dos veces.
+    // Filas repetidas = "id" repetidos, y React usa el id como clave de cada
+    // fila: con claves duplicadas deja de actualizar bien la tabla y puede
+    // dejar en pantalla filas viejas que ya no están en la lista filtrada
+    // (era justo lo que pasaba con "Solo por revisar").
+    return consulta
+      .order('co', { ascending: true })
+      .order('nro_orden', { ascending: true })
+      .order('id', { ascending: true });
   }
 
   // Supabase/PostgREST solo devuelve 1000 filas por consulta por defecto.
@@ -189,12 +202,23 @@ export default function NivelServicio({ tema, alternarTema }) {
       if (!data || data.length < TAMANO_PAGINA) break;
       desde += TAMANO_PAGINA;
     }
-    if (idDeEstaCarga !== cargaIdRef.current) return; // llegó una carga más nueva primero: se descarta esta
+    if (idDeEstaCarga !== cargaIdRef.current) {
+      setCargando(false);
+      return; // llegó una carga más nueva primero: se descarta esta
+    }
     if (errorFinal) {
       setMensaje(`Error cargando datos: ${errorFinal.message}`);
       setFilas([]);
     } else {
-      setFilas(todas);
+      // Garantía extra contra filas repetidas entre páginas (además del
+      // ".order('id')" de la consulta): si por lo que sea llegara la misma
+      // línea dos veces, se queda una sola. Es importante porque el "id" se
+      // usa como clave de fila en la tabla y como identificador al asignar
+      // motivos o corregir fechas -- con ids repetidos, la pantalla se
+      // desincroniza de los datos.
+      const porId = new Map();
+      for (const fila of todas) porId.set(fila.id, fila);
+      setFilas([...porId.values()]);
     }
     setCargando(false);
   }
@@ -523,6 +547,16 @@ export default function NivelServicio({ tema, alternarTema }) {
       <p style={{ fontSize: 12, opacity: 0.85, marginBottom: 10 }}>
         {filas.length} línea(s) cargada(s) para el rango de fechas {co ? `y C.O. ${co}` : ''}
         {filasOrdenadas.length !== filas.length && ` · ${filasOrdenadas.length} después de los filtros de columna`}.
+        {soloPorRevisar && (
+          filasOrdenadas.every(esPorRevisar)
+            ? <span style={{ opacity: 0.7 }}> Todas tienen la fecha de orden igual a la de entrega real.</span>
+            : (
+              <span className="error-text">
+                {' '}Atención: {filasOrdenadas.filter((f) => !esPorRevisar(f)).length} de las líneas listadas
+                NO cumplen la condición de &quot;por revisar&quot;. Avísame si ves este mensaje.
+              </span>
+            )
+        )}
       </p>
 
       {seleccionados.size > 0 && (
