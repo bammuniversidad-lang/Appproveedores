@@ -1,7 +1,35 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import * as XLSX from 'xlsx';
 import Layout from '../../components/Layout';
 import { supabase } from '../../lib/supabaseClient';
 import { leerArchivo, mapearFilasTiempoEntrega } from '../../lib/importUtils';
+
+const TAMANO_PAGINA = 1000;
+
+// Supabase/PostgREST devuelve como máximo 1000 filas por consulta si no se
+// pide explícitamente más. El maestro de tiempo de entrega ya supera esa
+// cifra, así que la carga anterior (una sola consulta sin paginar) se
+// quedaba con las primeras 1000 filas y el resto simplemente NO EXISTÍA
+// para la pantalla: el buscador filtra sobre lo ya descargado, así que un
+// proveedor más allá de esa fila (por ejemplo PRODUCTOS RAMO en el C.O.
+// 005) parecía no estar registrado aunque sí lo estuviera. Aquí se pide
+// página por página hasta traer todo.
+//
+// El ".order('id')" del final es obligatorio: para que la paginación no
+// repita ni pierda filas, el orden tiene que ser ÚNICO, y (C.O. +
+// Proveedor) puede empatar.
+async function obtenerTodo(construirConsulta) {
+  let desde = 0;
+  let todas = [];
+  while (true) {
+    const { data, error } = await construirConsulta().range(desde, desde + TAMANO_PAGINA - 1);
+    if (error) throw error;
+    todas = todas.concat(data || []);
+    if (!data || data.length < TAMANO_PAGINA) break;
+    desde += TAMANO_PAGINA;
+  }
+  return todas;
+}
 
 const CAMPO_VACIO = {
   co: '',
@@ -39,6 +67,7 @@ export default function TiempoEntrega({ tema, alternarTema }) {
   const [registros, setRegistros] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState('');
+  const [coFiltro, setCoFiltro] = useState('');
   const [error, setError] = useState('');
 
   const [nuevo, setNuevo] = useState(CAMPO_VACIO);
@@ -62,22 +91,32 @@ export default function TiempoEntrega({ tema, alternarTema }) {
 
   async function cargar() {
     setCargando(true);
-    const { data, error } = await supabase
-      .from('tiempo_entrega')
-      .select('*')
-      .order('co')
-      .order('proveedor');
-    if (error) setError(error.message);
-    setRegistros(data || []);
-    setCargando(false);
+    try {
+      const datos = await obtenerTodo(() =>
+        supabase.from('tiempo_entrega').select('*').order('co').order('proveedor').order('id')
+      );
+      setRegistros(datos);
+    } catch (e) {
+      setError(e.message);
+      setRegistros([]);
+    } finally {
+      setCargando(false);
+    }
   }
 
   async function cargarFaltantes() {
     setCargandoFaltantes(true);
-    const { data, error } = await supabase.rpc('get_co_proveedor_sin_tiempo_entrega');
-    if (error) setError(error.message);
-    setFaltantes(data || []);
-    setCargandoFaltantes(false);
+    try {
+      // El mismo tope de 1000 filas aplica a las funciones que devuelven
+      // conjuntos, así que este panel también se pide por páginas.
+      const datos = await obtenerTodo(() => supabase.rpc('get_co_proveedor_sin_tiempo_entrega'));
+      setFaltantes(datos);
+    } catch (e) {
+      setError(e.message);
+      setFaltantes([]);
+    } finally {
+      setCargandoFaltantes(false);
+    }
   }
 
   useEffect(() => {
@@ -204,11 +243,42 @@ export default function TiempoEntrega({ tema, alternarTema }) {
     }
   }
 
-  const registrosFiltrados = registros.filter((r) => {
+  const cosDisponibles = useMemo(
+    () => [...new Set(registros.map((r) => r.co).filter(Boolean))].sort(),
+    [registros]
+  );
+
+  const registrosFiltrados = useMemo(() => registros.filter((r) => {
+    if (coFiltro && (r.co || '') !== coFiltro) return false;
     if (!busqueda.trim()) return true;
     const b = busqueda.trim().toLowerCase();
     return (r.co || '').toLowerCase().includes(b) || (r.proveedor || '').toLowerCase().includes(b);
-  });
+  }), [registros, busqueda, coFiltro]);
+
+  // Exporta lo que se está viendo (con el filtro de C.O. y la búsqueda ya
+  // aplicados), con las mismas columnas de la tabla.
+  function exportar() {
+    const datos = registrosFiltrados.map((r) => ({
+      'C.O.': r.co,
+      Proveedor: r.proveedor,
+      'Tipo entrega': r.tipo_entrega,
+      'Días entrega': r.dias_entrega,
+      NIT: r.nit,
+      'Condición pago': r.condicion_pago,
+      Sucursal: r.sucursal,
+      'Pedido mín. valor': r.pedido_minimo_valor,
+      'Pedido mín. peso': r.pedido_minimo_peso,
+      'Pedido mín. volumen': r.pedido_minimo_volumen,
+      'Pedido mín. cajas': r.pedido_minimo_cajas,
+      'Pedido mín. unidades': r.pedido_minimo_unidades,
+      'Archivo origen': r.archivo_origen,
+    }));
+    const hoja = XLSX.utils.json_to_sheet(datos);
+    const libro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(libro, hoja, 'Tiempo de entrega');
+    const sufijo = coFiltro ? `_co_${coFiltro}` : '_todos';
+    XLSX.writeFile(libro, `tiempo_entrega${sufijo}.xlsx`);
+  }
 
   return (
     <Layout tema={tema} alternarTema={alternarTema} requiereModulo="configuracion_tiempo_entrega">
@@ -324,16 +394,31 @@ export default function TiempoEntrega({ tema, alternarTema }) {
       </div>
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-        <input
-          placeholder="Buscar por C.O. o Proveedor..."
-          value={busqueda}
-          onChange={(e) => setBusqueda(e.target.value)}
-          style={{ minWidth: 260 }}
-        />
-        <button onClick={() => setMostrarNuevo((v) => !v)}>
+        <div>
+          <label style={{ fontSize: 11, opacity: 0.75 }}>C.O.</label><br />
+          <select value={coFiltro} onChange={(e) => setCoFiltro(e.target.value)}>
+            <option value="">Todos</option>
+            {cosDisponibles.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={{ fontSize: 11, opacity: 0.75 }}>Buscar</label><br />
+          <input
+            placeholder="Buscar por C.O. o Proveedor..."
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            style={{ minWidth: 260 }}
+          />
+        </div>
+        <button style={{ marginTop: 14 }} onClick={() => setMostrarNuevo((v) => !v)}>
           {mostrarNuevo ? 'Cancelar' : '+ Agregar proveedor'}
         </button>
-        <span style={{ fontSize: 12, opacity: 0.7 }}>{cargando ? 'Cargando...' : `${registrosFiltrados.length} de ${registros.length} registro(s)`}</span>
+        <button style={{ marginTop: 14 }} onClick={exportar} disabled={cargando || registrosFiltrados.length === 0}>
+          Descargar Excel
+        </button>
+        <span style={{ fontSize: 12, opacity: 0.7, marginTop: 14 }}>
+          {cargando ? 'Cargando...' : `${registrosFiltrados.length} de ${registros.length} registro(s)`}
+        </span>
       </div>
 
       {mostrarNuevo && (
