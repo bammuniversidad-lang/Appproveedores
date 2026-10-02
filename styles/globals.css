@@ -498,6 +498,31 @@ th.ordenable:hover {
   background-color: #1e3a5f;
 }
 
+/* Fila marcada con un clic (Nivel de servicio): queda sombreada de forma
+   permanente, con una barrita a la izquierda, para no perder el renglón que
+   se está revisando al desplazarse por una tabla ancha. Vuelve a hacer clic
+   sobre ella para quitarle la marca. Va con "!important" porque las filas de
+   revisión (rojo) y de fecha corregida (amarillo) pintan su propio fondo. */
+.fila-activa > td {
+  background-color: #bbdefb !important;
+  box-shadow: inset 3px 0 0 #1565c0;
+}
+
+.tema-oscuro .fila-activa > td {
+  background-color: #17457a !important;
+  box-shadow: inset 3px 0 0 #64b5f6;
+}
+
+/* Al pasar el cursor sobre la fila marcada, se aclara un poco más para que
+   se note que sigue siendo clicable. */
+.fila-clicable.fila-activa:hover > td {
+  background-color: #90caf9 !important;
+}
+
+.tema-oscuro .fila-clicable.fila-activa:hover > td {
+  background-color: #1f5596 !important;
+}
+
 .chip-filtro-activo {
   display: inline-flex;
   align-items: center;

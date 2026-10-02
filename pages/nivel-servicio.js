@@ -67,9 +67,10 @@ export default function NivelServicio({ tema, alternarTema }) {
   const [tarjetas, setTarjetas] = useState(null);
   const [fechaInicio, setFechaInicio] = useState(primerDiaMesActual());
   const [fechaFin, setFechaFin] = useState(hoyISO());
-  const [soloPorRevisar, setSoloPorRevisar] = useState(false);
-  const [soloIncumplido, setSoloIncumplido] = useState(false);
   const [soloConPendiente, setSoloConPendiente] = useState(false);
+  // Fila sobre la que se hizo clic: se queda sombreada para no perder el
+  // renglón que se está revisando al moverse por una tabla ancha.
+  const [filaActiva, setFilaActiva] = useState(null);
   const [co, setCo] = useState('');
   const [cosDisponibles, setCosDisponibles] = useState([]);
   const [columnasOcultas, setColumnasOcultas] = useState([]);
@@ -137,21 +138,14 @@ export default function NivelServicio({ tema, alternarTema }) {
     // puntual, en vez de hacerla desaparecer por completo del rango.
     if (fechaInicio) consulta = consulta.gte('fecha_referencia', fechaInicio);
     if (fechaFin) consulta = consulta.lte('fecha_referencia', fechaFin);
-    // "Solo por revisar": aquí solo se pide al servidor la parte que se
-    // puede expresar sin depender de ninguna columna calculada -- las
-    // líneas que nunca se han corregido. La condición completa (que la
-    // fecha de orden siga siendo igual a la fecha de entrega real) se
-    // aplica después sobre las filas ya traídas, en esPorRevisar().
-    //
-    // Se hace así a propósito: comparar dos columnas entre sí no se puede
-    // pedir por la API, y depender de una columna calculada en la vista
-    // significa que si esa vista queda desactualizada el filtro falla en
-    // silencio (o la consulta da error). Calculándolo sobre las fechas que
-    // ya vienen en cada fila, el resultado no puede desviarse de lo que
-    // muestra la tabla.
-    if (soloPorRevisar) consulta = consulta.is('fecha_orden_original', null);
-    if (soloIncumplido) consulta = consulta.eq('observacion2', 'INCUMPLIDO');
-    if (soloConPendiente) consulta = consulta.gt('cant_pendiente_inv', 0);
+    // "Solo faltantes sin motivo": las líneas que de verdad quedan por
+    // trabajar -- tienen cantidad pendiente Y todavía no se les ha asignado
+    // el motivo de faltante. A medida que se asignan motivos van saliendo
+    // del filtro, así que la lista refleja lo que falta y no todo el
+    // histórico de faltantes.
+    if (soloConPendiente) {
+      consulta = consulta.gt('cant_pendiente_inv', 0).is('motivo_faltante_id', null);
+    }
     if (co) consulta = consulta.eq('co', co);
     // El ".order('id')" del final es OBLIGATORIO, no cosmético: la tabla se
     // descarga en páginas de 1000 filas, y para que la paginación no repita
@@ -241,7 +235,7 @@ export default function NivelServicio({ tema, alternarTema }) {
     cargarFilas();
     cargarTarjetas();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fechaInicio, fechaFin, soloPorRevisar, soloIncumplido, soloConPendiente, co]);
+  }, [fechaInicio, fechaFin, soloConPendiente, co]);
 
   useEffect(() => {
     if (filaEncabezadoRef.current) {
@@ -419,13 +413,7 @@ export default function NivelServicio({ tema, alternarTema }) {
   );
 
   const filasOrdenadas = useMemo(() => {
-    // Red de seguridad de "Solo por revisar": la consulta ya lo filtra en el
-    // servidor, pero aquí se vuelve a comprobar con las fechas de la propia
-    // fila. Así, si la vista de la base quedara desactualizada o el navegador
-    // tuviera una versión vieja en caché, igual es IMPOSIBLE que se liste una
-    // línea cuya fecha de orden no sea igual a la fecha de entrega real.
-    const base = soloPorRevisar ? filas.filter(esPorRevisar) : filas;
-    const ordenadas = ordenarFilas(base, orden);
+    const ordenadas = ordenarFilas(filas, orden);
     const filtrosActivos = Object.entries(filtrosColumna).filter(([, v]) => v.trim() !== '');
     if (filtrosActivos.length === 0) return ordenadas;
     return ordenadas.filter((f) =>
@@ -434,7 +422,7 @@ export default function NivelServicio({ tema, alternarTema }) {
       )
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filas, orden, filtrosColumna, soloPorRevisar]);
+  }, [filas, orden, filtrosColumna]);
   const todosVisiblesSeleccionados = filasOrdenadas.length > 0 && filasOrdenadas.every((f) => seleccionados.has(f.id));
 
   return (
@@ -480,17 +468,9 @@ export default function NivelServicio({ tema, alternarTema }) {
             {cosDisponibles.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
-        <label style={{ marginTop: 16 }}>
-          <input type="checkbox" checked={soloPorRevisar} onChange={(e) => setSoloPorRevisar(e.target.checked)} />
-          {' '}Solo por revisar
-        </label>
-        <label style={{ marginTop: 16 }}>
-          <input type="checkbox" checked={soloIncumplido} onChange={(e) => setSoloIncumplido(e.target.checked)} />
-          {' '}Solo incumplidos (tiempo de entrega)
-        </label>
-        <label style={{ marginTop: 16 }}>
+        <label style={{ marginTop: 16 }} title="Deja solo las líneas con cantidad pendiente a las que todavía no se les ha asignado el motivo de faltante.">
           <input type="checkbox" checked={soloConPendiente} onChange={(e) => setSoloConPendiente(e.target.checked)} />
-          {' '}Solo con cantidad pendiente (faltante)
+          {' '}Solo faltantes sin motivo
         </label>
         <button style={{ marginTop: 16 }} onClick={exportar}>Descargar Excel</button>
         <button style={{ marginTop: 16 }} onClick={corregirFechas} disabled={corrigiendo}>
@@ -531,9 +511,11 @@ export default function NivelServicio({ tema, alternarTema }) {
         de referencia y no se puede editar. "Motivo (faltante)" es por qué quedó{' '}
         <b>cantidad pendiente</b> del ítem (columna Observaciones = INCOMPLETA); su lista
         desplegable solo aparece en las líneas que sí tienen cantidad pendiente. Marca
-        "Solo con cantidad pendiente (faltante)" arriba, selecciona todo con la casilla del
-        encabezado y usa "Aplicar a selección" para cubrir el 100% del indicador de
-        faltantes más rápido.
+        "Solo faltantes sin motivo" arriba -- que deja únicamente las líneas con cantidad
+        pendiente a las que todavía les falta el motivo --, selecciona todo con la casilla
+        del encabezado y usa "Aplicar a selección" para cubrir el 100% del indicador de
+        faltantes más rápido. A medida que asignas motivos, esas líneas van saliendo del
+        filtro, así que lo que queda en pantalla es lo que falta por trabajar.
       </p>
 
       <p style={{ fontSize: 11, opacity: 0.75, maxWidth: 760 }}>
@@ -547,16 +529,6 @@ export default function NivelServicio({ tema, alternarTema }) {
       <p style={{ fontSize: 12, opacity: 0.85, marginBottom: 10 }}>
         {filas.length} línea(s) cargada(s) para el rango de fechas {co ? `y C.O. ${co}` : ''}
         {filasOrdenadas.length !== filas.length && ` · ${filasOrdenadas.length} después de los filtros de columna`}.
-        {soloPorRevisar && (
-          filasOrdenadas.every(esPorRevisar)
-            ? <span style={{ opacity: 0.7 }}> Todas tienen la fecha de orden igual a la de entrega real.</span>
-            : (
-              <span className="error-text">
-                {' '}Atención: {filasOrdenadas.filter((f) => !esPorRevisar(f)).length} de las líneas listadas
-                NO cumplen la condición de &quot;por revisar&quot;. Avísame si ves este mensaje.
-              </span>
-            )
-        )}
       </p>
 
       {seleccionados.size > 0 && (
@@ -634,7 +606,11 @@ export default function NivelServicio({ tema, alternarTema }) {
           </thead>
           <tbody>
             {filasOrdenadas.map((f) => (
-              <tr key={f.id} className={claseFilaRevision(f)}>
+              <tr
+                key={f.id}
+                className={`fila-clicable ${claseFilaRevision(f)}${filaActiva === f.id ? ' fila-activa' : ''}`}
+                onClick={() => setFilaActiva((prev) => (prev === f.id ? null : f.id))}
+              >
                 <td>
                   <input type="checkbox" checked={seleccionados.has(f.id)} onChange={() => alternarSeleccion(f.id)} />
                 </td>
