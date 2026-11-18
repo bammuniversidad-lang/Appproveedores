@@ -48,8 +48,16 @@ function formatearCelda(valor, tipo) {
 // dicen las columnas "Fecha orden", "Fecha entrega real" y "Fecha orden
 // original" de esa misma fila. Si las dos fechas no son iguales, la línea no
 // se marca ni se lista, sin importar qué diga la base.
+//
+// La única excepción viene de la base y es deliberada: si el histórico de
+// ODC RESPALDA la fecha de orden (esa misma orden figura en el ODC con esa
+// misma fecha), entonces que coincida con la fecha de entrada no es un
+// error -- se pidió y se recibió el mismo día. Antes esas líneas salían en
+// rojo para siempre aunque no hubiera nada que corregir: eran 564 falsas
+// alarmas sobre un total de 209 documentos marcados.
 function esPorRevisar(fila) {
   if (fila.fecha_orden_original) return false;
+  if (fila.fecha_orden_confirmada_odc) return false;
   if (!fila.fecha_orden || !fila.fecha_entrega_real) return false;
   return fila.fecha_orden === fila.fecha_entrega_real;
 }
@@ -501,7 +509,7 @@ export default function NivelServicio({ tema, alternarTema }) {
         <span className="celda-amarilla-metal" style={{ padding: '1px 6px', borderRadius: 3 }}>Amarillo</span>
         {' '}= la fecha de orden se corrigió sola con el histórico de ODC. {' '}
         <span className="celda-roja-metal" style={{ padding: '1px 6px', borderRadius: 3 }}>Rojo</span>
-        {' '}= sigue con la fecha de orden igual a la fecha de entrada y no se encontró (o no sirvió) el histórico de ODC — revísala y corrígela manualmente abajo.
+        {' '}= sigue con la fecha de orden igual a la fecha de entrada y el histórico de ODC no la respalda ni aporta una fecha anterior — revísala y corrígela manualmente abajo. Si el ODC confirma esa misma fecha, la línea NO se marca: quiere decir que se pidió y se recibió el mismo día.
       </p>
 
       <p style={{ fontSize: 11, opacity: 0.75, maxWidth: 760 }}>
