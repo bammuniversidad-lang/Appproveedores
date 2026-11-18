@@ -76,6 +76,11 @@ export default function NivelServicio({ tema, alternarTema }) {
   const [fechaInicio, setFechaInicio] = useState(primerDiaMesActual());
   const [fechaFin, setFechaFin] = useState(hoyISO());
   const [soloConPendiente, setSoloConPendiente] = useState(false);
+  // "Solo validar fecha ODC": deja únicamente las líneas en rojo, o sea las
+  // que de verdad hay que validar contra la ODC real -- la fecha de orden
+  // sigue siendo igual a la fecha de entrada, nunca se corrigió y el
+  // histórico de ODC no la respalda ni aporta una fecha anterior.
+  const [soloValidarODC, setSoloValidarODC] = useState(false);
   // Fila sobre la que se hizo clic: se queda sombreada para no perder el
   // renglón que se está revisando al moverse por una tabla ancha.
   const [filaActiva, setFilaActiva] = useState(null);
@@ -154,6 +159,17 @@ export default function NivelServicio({ tema, alternarTema }) {
     if (soloConPendiente) {
       consulta = consulta.gt('cant_pendiente_inv', 0).is('motivo_faltante_id', null);
     }
+    // "Solo validar fecha ODC": se filtra en la BASE con la columna calculada
+    // "necesita_revision_actual" de la vista (no con la columna guardada
+    // "necesita_revision", que solo se recalcula cuando corre la corrección
+    // automática y puede quedar vencida). Esa columna ya incluye las tres
+    // condiciones: nunca se corrigió, la fecha de orden sigue igual a la de
+    // entrada, y el histórico de ODC NO respalda esa fecha. Filtrar en la
+    // base -- y no solo en pantalla -- es lo que evita descargar miles de
+    // filas para mostrar unas pocas. Abajo se vuelve a verificar fila por
+    // fila (ver filasOrdenadas), así que el resultado nunca depende de una
+    // sola de las dos capas.
+    if (soloValidarODC) consulta = consulta.eq('necesita_revision_actual', true);
     if (co) consulta = consulta.eq('co', co);
     // El ".order('id')" del final es OBLIGATORIO, no cosmético: la tabla se
     // descarga en páginas de 1000 filas, y para que la paginación no repita
@@ -243,7 +259,7 @@ export default function NivelServicio({ tema, alternarTema }) {
     cargarFilas();
     cargarTarjetas();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fechaInicio, fechaFin, soloConPendiente, co]);
+  }, [fechaInicio, fechaFin, soloConPendiente, soloValidarODC, co]);
 
   useEffect(() => {
     if (filaEncabezadoRef.current) {
@@ -421,7 +437,14 @@ export default function NivelServicio({ tema, alternarTema }) {
   );
 
   const filasOrdenadas = useMemo(() => {
-    const ordenadas = ordenarFilas(filas, orden);
+    // Segunda llave del filtro "Solo validar fecha ODC": además de pedirlo a
+    // la base, cada fila se vuelve a verificar con sus propias fechas. Así lo
+    // que queda en pantalla siempre coincide con las columnas "Fecha orden",
+    // "Fecha entrega real" y "Fecha orden original" de ese mismo renglón, y
+    // no puede repetirse lo que pasaba con el viejo "Solo por revisar" (se
+    // filtraba y al rato volvían a aparecer líneas que ya no correspondían).
+    const base = soloValidarODC ? filas.filter(esPorRevisar) : filas;
+    const ordenadas = ordenarFilas(base, orden);
     const filtrosActivos = Object.entries(filtrosColumna).filter(([, v]) => v.trim() !== '');
     if (filtrosActivos.length === 0) return ordenadas;
     return ordenadas.filter((f) =>
@@ -430,7 +453,7 @@ export default function NivelServicio({ tema, alternarTema }) {
       )
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filas, orden, filtrosColumna]);
+  }, [filas, orden, filtrosColumna, soloValidarODC]);
   const todosVisiblesSeleccionados = filasOrdenadas.length > 0 && filasOrdenadas.every((f) => seleccionados.has(f.id));
 
   return (
@@ -480,6 +503,18 @@ export default function NivelServicio({ tema, alternarTema }) {
           <input type="checkbox" checked={soloConPendiente} onChange={(e) => setSoloConPendiente(e.target.checked)} />
           {' '}Solo faltantes sin motivo
         </label>
+        <button
+          style={{
+            marginTop: 16,
+            ...(soloValidarODC
+              ? { background: '#c62828', borderColor: '#b71c1c', color: '#fff', fontWeight: 600 }
+              : {}),
+          }}
+          onClick={() => setSoloValidarODC((v) => !v)}
+          title="Deja solo las líneas en rojo: la fecha de orden sigue igual a la fecha de entrada, nunca se corrigió y el histórico de ODC no la respalda ni aporta una fecha anterior. Son exactamente las que hay que validar contra la ODC real."
+        >
+          {soloValidarODC ? '✕ Quitar filtro de validación ODC' : 'Solo validar fecha ODC'}
+        </button>
         <button style={{ marginTop: 16 }} onClick={exportar}>Descargar Excel</button>
         <button style={{ marginTop: 16 }} onClick={corregirFechas} disabled={corrigiendo}>
           {corrigiendo ? 'Corrigiendo...' : 'Corregir fechas de orden'}
@@ -510,6 +545,8 @@ export default function NivelServicio({ tema, alternarTema }) {
         {' '}= la fecha de orden se corrigió sola con el histórico de ODC. {' '}
         <span className="celda-roja-metal" style={{ padding: '1px 6px', borderRadius: 3 }}>Rojo</span>
         {' '}= sigue con la fecha de orden igual a la fecha de entrada y el histórico de ODC no la respalda ni aporta una fecha anterior — revísala y corrígela manualmente abajo. Si el ODC confirma esa misma fecha, la línea NO se marca: quiere decir que se pidió y se recibió el mismo día.
+        {' '}El botón <b>«Solo validar fecha ODC»</b> deja en pantalla únicamente esas líneas rojas,
+        que son las que hay que validar contra la ODC real.
       </p>
 
       <p style={{ fontSize: 11, opacity: 0.75, maxWidth: 760 }}>
@@ -537,6 +574,12 @@ export default function NivelServicio({ tema, alternarTema }) {
       <p style={{ fontSize: 12, opacity: 0.85, marginBottom: 10 }}>
         {filas.length} línea(s) cargada(s) para el rango de fechas {co ? `y C.O. ${co}` : ''}
         {filasOrdenadas.length !== filas.length && ` · ${filasOrdenadas.length} después de los filtros de columna`}.
+        {soloValidarODC && (
+          <>
+            {' '}<b>Filtro activo: solo líneas por validar contra la ODC real.</b> El Excel
+            que descargues sale con estas mismas líneas.
+          </>
+        )}
       </p>
 
       {seleccionados.size > 0 && (
