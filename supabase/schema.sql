@@ -3,7 +3,16 @@
 -- Etapa 1
 -- =====================================================================
 -- Proyecto de Supabase INDEPENDIENTE del de "Compras" (usuarios propios,
--- mismo diseño visual). Cómo usarlo:
+-- mismo diseño visual).
+--
+-- ESTE ARCHIVO ES PARA CREAR LA BASE DESDE CERO. Sobre una base que ya
+-- está en uso NO hace falta correrlo: los cambios puntuales van en
+-- supabase/migraciones_manuales/. Aun así, ahora es re-ejecutable sin
+-- errores (cada política se borra antes de crearse, porque Postgres no
+-- admite "create policy if not exists"), por si alguna vez quieres
+-- re-aplicarlo completo.
+--
+-- Cómo usarlo:
 --   1. Crea un proyecto nuevo en https://supabase.com
 --   2. Ve a SQL Editor y pega/ejecuta este archivo completo, de un solo
 --      pegado (no por partes).
@@ -266,6 +275,7 @@ create table if not exists dias_festivos_colombia (
 alter table dias_festivos_colombia enable row level security;
 
 drop policy if exists "dias_festivos_colombia_select" on dias_festivos_colombia;
+drop policy if exists "dias_festivos_colombia_select" on dias_festivos_colombia;
 create policy "dias_festivos_colombia_select" on dias_festivos_colombia
   for select using (auth.role() in ('authenticated', 'anon'));
 
@@ -438,9 +448,24 @@ create index if not exists idx_pedidos_detalle_docto_ref_norm
   on pedidos_detalle (normalizar_nro_orden(docto_referencia));
 
 -- =====================================================================
--- FUNCIÓN CLAVE: corrige automáticamente "Fecha orden" cuando quedó
--- igual a la fecha real de entrada, usando el histórico de ODC, y marca
--- para revisión manual los casos que sigan sin resolverse.
+-- FUNCIÓN CLAVE: corrige automáticamente "Fecha orden" con la fecha real
+-- de la orden según el histórico de ODC, y marca para revisión manual los
+-- casos que sigan sin resolverse.
+--
+-- Corrige DOS situaciones (antes solo la primera):
+--   (A) El ERP dejó la fecha de la orden igual a la fecha de entrada.
+--   (B) La orden fue MODIFICADA: "Docto. referencia" apunta a una orden
+--       anterior que sí está en el histórico de ODC. La fecha que vale
+--       para medirle el tiempo de entrega al proveedor es la de esa orden
+--       original. Ejemplo real: ODC-00194115 con fecha 2026-10-30 y Docto.
+--       referencia 193933, que en el histórico (ODC-00193933, C.O. 001) es
+--       del 2026-10-28; su fecha de entrada es 2026-11-03, así que NO
+--       entraba por el caso (A) y nunca se corregía.
+--
+-- En los dos casos se exige que la fecha del histórico sea ANTERIOR a la
+-- que tiene hoy la línea: eso evita mover fechas hacia adelante y hace que
+-- la corrección sea repetible (una vez aplicada, la línea deja de ser
+-- candidata y una segunda corrida no la vuelve a tocar).
 --
 -- Reemplaza la fórmula de la columna "Fecha ODC" de tu hoja "BD Calculos"
 -- (que hoy está incompleta: =XLOOKUP(ODC!D:D,ODC!C:C) no trae el valor a
@@ -502,7 +527,8 @@ begin
     d.nro_orden,
     d.fecha_orden,
     e.fecha_entrega_real,
-    coalesce(h_co.fecha, h_solo.fecha) as fecha_historica
+    coalesce(h_co.fecha, h_solo.fecha) as fecha_historica,
+    (d.fecha_orden = e.fecha_entrega_real) as fecha_igual_a_entrada
   from pedidos_detalle d
   join (
     select yave, max(fecha) as fecha_entrega_real
@@ -511,19 +537,12 @@ begin
     group by yave
   ) e on e.yave = d.yave
   -- Los dos cruces contra el histórico van como subconsultas LATERAL con
-  -- "limit 1" en vez de left join directo. Motivo (corregido en la
-  -- auditoría): la restricción "unique (nro_orden)" de odc_historico es
-  -- sobre el Nro orden CRUDO, pero el cruce se hace sobre el NORMALIZADO
-  -- -- y dos valores crudos distintos y perfectamente válidos para esa
-  -- restricción ("ODC-00189722" y "189722") normalizan al mismo texto.
-  -- Si el histórico llegaba a tener los dos (p. ej. porque el ERP cambió
-  -- el formato del archivo entre meses), la línea entraba DOS VECES en
-  -- esta tabla temporal: el UPDATE de abajo aplicaba una de las dos
-  -- fechas de forma arbitraria y el conteo de "líneas evaluadas" quedaba
-  -- inflado. Con LATERAL + limit 1 se garantiza como máximo una
-  -- coincidencia por línea, tomando siempre la fecha más antigua (que es
-  -- la de la orden original) para que el resultado sea estable y
-  -- repetible.
+  -- "limit 1": la restricción "unique (nro_orden)" de odc_historico es sobre
+  -- el Nro orden CRUDO, pero el cruce se hace sobre el NORMALIZADO, y dos
+  -- valores crudos distintos ("ODC-00189722" y "189722") normalizan al mismo
+  -- texto. Con LATERAL + limit 1 se garantiza como máximo una coincidencia
+  -- por línea, tomando siempre la fecha más antigua (la de la orden
+  -- original) para que el resultado sea estable y repetible.
   left join lateral (
     select h.fecha
     from odc_historico h
@@ -540,17 +559,26 @@ begin
     limit 1
   ) h_solo on true
   where d.fecha_orden is not null
-    and d.fecha_orden = e.fecha_entrega_real;
+    and (
+      -- (A) El ERP dejó la fecha de la orden igual a la fecha de entrada.
+      d.fecha_orden = e.fecha_entrega_real
+      -- (B) La orden fue MODIFICADA: "Docto. referencia" apunta a una orden
+      -- anterior del histórico de ODC. La fecha que vale para medirle el
+      -- tiempo de entrega al proveedor es la de esa orden original, no la de
+      -- la modificación. Antes solo se miraba el caso (A), así que una línea
+      -- como ODC-00194115 (fecha 2026-10-30, Docto. referencia 193933, que
+      -- en el histórico es del 2026-10-28) nunca se corregía porque su fecha
+      -- de orden no coincidía con la de entrada.
+      or coalesce(h_co.fecha, h_solo.fecha) < d.fecha_orden
+    );
 
   select count(*) into v_evaluadas from tmp_candidatas_fecha_orden;
 
-  -- Caso 1: se encontró la fecha real de la orden inicial en el histórico
-  -- de ODC (cruzando C.O. + Docto referencia normalizado contra C.O. +
-  -- Nro orden normalizado, o si eso no encontró nada, cruzando SOLO por
-  -- Docto referencia normalizado contra Nro orden normalizado -- ver nota
-  -- de "respaldo de búsqueda" arriba) y es distinta a la fecha de entrada
-  -- -> se corrige "Fecha orden" automáticamente, guardando la fecha
-  -- original para trazabilidad.
+  -- Caso 1: se encontró en el histórico de ODC la fecha de la orden
+  -- original, es ANTERIOR a la que tiene hoy la línea y no es la misma
+  -- fecha de entrada -> se corrige "Fecha orden", guardando la original
+  -- para trazabilidad. Exigir que sea anterior es lo que hace la corrección
+  -- repetible: una vez aplicada, la línea deja de ser candidata.
   update pedidos_detalle d
   set
     fecha_orden_original = coalesce(d.fecha_orden_original, t.fecha_orden),
@@ -561,25 +589,30 @@ begin
   from tmp_candidatas_fecha_orden t
   where d.id = t.id
     and t.fecha_historica is not null
+    and t.fecha_historica < t.fecha_orden
     and t.fecha_historica <> t.fecha_entrega_real;
 
   get diagnostics v_corregidas = row_count;
 
-  -- Caso 2: no se encontró la orden original en el histórico de ODC
-  -- (falta "Docto referencia", esa orden no está en el histórico, o su
-  -- fecha también coincide con la de entrada) -> no se puede resolver
-  -- sola; se marca para que el usuario la revise manualmente.
+  -- Caso 2: la línea quedó con la fecha de orden igual a la de entrada y NO
+  -- se pudo resolver con el histórico -> se marca para revisión manual.
+  -- Solo aplica al caso (A): las del caso (B) siempre tienen fecha del
+  -- histórico, por definición.
   update pedidos_detalle d
   set necesita_revision = true
   from tmp_candidatas_fecha_orden t
   where d.id = t.id
-    and (t.fecha_historica is null or t.fecha_historica = t.fecha_entrega_real);
+    and t.fecha_igual_a_entrada
+    and (
+      t.fecha_historica is null
+      or t.fecha_historica >= t.fecha_orden
+      or t.fecha_historica = t.fecha_entrega_real
+    );
 
   get diagnostics v_pendientes = row_count;
 
   -- Limpieza: filas marcadas "necesita_revision" en una corrida anterior
-  -- que ya no aplican (por ejemplo, porque el usuario corrigió la fecha
-  -- manualmente y ya no coincide con la fecha de entrada).
+  -- que ya no aplican.
   update pedidos_detalle d
   set necesita_revision = false
   where d.necesita_revision = true
@@ -1333,34 +1366,42 @@ revoke execute on function public.usuario_cos_permitidos() from public;
 revoke execute on function public.usuario_cos_permitidos() from anon;
 grant execute on function public.usuario_cos_permitidos() to authenticated;
 
+drop policy if exists "ver propio perfil o admin ve todos" on profiles;
 create policy "ver propio perfil o admin ve todos" on profiles
   for select using (
     (select auth.uid()) = id
     or public.es_administrador()
   );
 
+drop policy if exists "solo admin inserta perfiles" on profiles;
 create policy "solo admin inserta perfiles" on profiles
   for insert with check ( public.es_administrador() );
 
+drop policy if exists "solo admin actualiza perfiles" on profiles;
 create policy "solo admin actualiza perfiles" on profiles
   for update using ( public.es_administrador() );
 
 -- motivos: lectura para cualquier autenticado, escritura solo para admin
 -- (dos políticas necesarias porque los permisos difieren por acción).
+drop policy if exists "autenticados leen motivos" on motivos;
 create policy "autenticados leen motivos" on motivos
   for select using ((select auth.role()) = 'authenticated');
+drop policy if exists "solo admin escribe motivos" on motivos;
 create policy "solo admin escribe motivos" on motivos
   for all using ( public.es_administrador() );
 
 -- tiempo_entrega / odc_historico / entradas_ea / pedidos_detalle: cualquier
 -- autenticado lee y escribe -> una sola política "for all" (una política de
 -- solo-lectura aparte sería redundante y se re-evaluaría dos veces por fila).
+drop policy if exists "autenticados leen y escriben tiempo_entrega" on tiempo_entrega;
 create policy "autenticados leen y escriben tiempo_entrega" on tiempo_entrega
   for all using ((select auth.role()) = 'authenticated');
 
+drop policy if exists "autenticados leen y escriben odc_historico" on odc_historico;
 create policy "autenticados leen y escriben odc_historico" on odc_historico
   for all using ((select auth.role()) = 'authenticated');
 
+drop policy if exists "autenticados leen y escriben entradas_ea" on entradas_ea;
 create policy "autenticados leen y escriben entradas_ea" on entradas_ea
   for all using ((select auth.role()) = 'authenticated');
 
@@ -1381,6 +1422,7 @@ create policy "autenticados leen y escriben entradas_ea" on entradas_ea
 -- acompaña este cambio pone "ve todos los C.O." en todos los usuarios que ya
 -- existían, para que nadie pierda acceso de un día para otro; a partir de
 -- ahí el administrador restringe uno por uno desde Configuración > Usuarios.
+drop policy if exists "pedidos_detalle segun co permitidos" on pedidos_detalle;
 create policy "pedidos_detalle segun co permitidos" on pedidos_detalle
   for all
   using (
@@ -1398,8 +1440,10 @@ create policy "pedidos_detalle segun co permitidos" on pedidos_detalle
     )
   );
 
+drop policy if exists "autenticados leen logs" on import_logs;
 create policy "autenticados leen logs" on import_logs
   for select using ((select auth.role()) = 'authenticated');
+drop policy if exists "autenticados insertan logs" on import_logs;
 create policy "autenticados insertan logs" on import_logs
   for insert with check ((select auth.role()) = 'authenticated');
 
